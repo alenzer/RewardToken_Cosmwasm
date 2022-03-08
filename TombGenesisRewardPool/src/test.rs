@@ -1,58 +1,114 @@
 use super::*;
-use cosmwasm_std::{from_binary, Addr, CosmosMsg, WasmMsg,
-    BankQuery, BalanceResponse, AllBalanceResponse, Coin, Uint128};
-use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR, mock_dependencies};
+use cosmwasm_std::{from_binary, Uint128, Addr};
+use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
 
 use crate::contract::{execute, instantiate};
 use crate::query::{query};
-use crate::msg::{QueryMsg, ExecuteMsg, InstantiateMsg, VestingParameter, Config, UserInfo, ProjectInfo};
+use crate::msg::{QueryMsg, ExecuteMsg, InstantiateMsg, PoolInfo, UserInfo};
 
-// use crate::mock_querier::mock_dependencies;
-use cw20::Cw20ExecuteMsg;
-// use terraswap::asset::{Asset, AssetInfo};
-// use terraswap::pair::ExecuteMsg as TerraswapExecuteMsg;
+use crate::mock_querier::mock_dependencies;
 
 #[test]
 fn workflow(){
     let mut deps = mock_dependencies(&[]);
     
     let msg = InstantiateMsg{
-        admin: Some(String::from("admin")),
+        TOMB: "tomb".to_string(),
+        SHIBA: "shiba".to_string(),
+        POOLSTARTTIME: Uint128::from(mock_env().block.time.seconds() + 1000)
     };
 //instantiate
     let info = mock_info("admin", &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
-//add community member
 
-    let msg = ExecuteMsg::AddProject{
-        project_id: Uint128::from(1u64),
-        admin: String::from("admin"),
-        token_addr: String::from("WeFund"),
-        vest_param: Vec::new(),
-        start_time: Uint128::from(1645771274u128)
+//add 
+    let msg = ExecuteMsg::Add{
+        alloc_point: Uint128::from(1u128),
+        token: Addr::unchecked("token1"),
+        with_update: false,
+        last_reward_time: Uint128::zero()
     };
-    // let msg = ExecuteMsg::AddSeedUser{
-    //     project_id: 
-    //     wallet: Addr::unchecked("seed1".to_string()),
-    //     amount: Uint128::new(100)
-    // };
 
     let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
-    println!("Add project{:?}", res);
-
+    println!("Add Pool{:?}", res);
+//add
+    let msg = ExecuteMsg::Add{
+        alloc_point: Uint128::from(1u128),
+        token: Addr::unchecked("token2"),
+        with_update: false,
+        last_reward_time: Uint128::zero()
+    };
     
+    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    println!("Add Pool{:?}", res);
+//set
+    let msg = ExecuteMsg::Set{
+        pid: Uint128::zero(),
+        alloc_point: Uint128::from(200u64)
+    };
 
-//-Remove Project-------------------------
+    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    println!("Set {:?}", res);
+//deposit
+    let msg = ExecuteMsg::Deposit{
+        pid: Uint128::zero(),
+        amount: Uint128::from(10_000u64)
+    };
 
-    // let info = mock_info("admin", &[Coin::new(105000000, "uusd")]);
-    // let msg = ExecuteMsg::RemoveProject{project_id:Uint128::new(1)};
-    // let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+    let info = mock_info("user1", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    println!("Deposit {:?}", res);
+//withdraw
+    let msg = ExecuteMsg::Withdraw{
+        pid: Uint128::zero(),
+        amount: Uint128::from(3_000u64)
+    };
 
-//-Get Project-----------------
-    let msg = QueryMsg::GetProjectInfo{project_id: Uint128::from(1u64)};
-    let project_info = query(deps.as_ref(), mock_env(), msg).unwrap();
+    let info = mock_info("user1", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    println!("Withdraw {:?}", res);
+//emergency withdraw
+    let msg = ExecuteMsg::EmergencyWithdraw{
+        pid: Uint128::zero(),
+    };
 
-    let res:ProjectInfo = from_binary(&project_info).unwrap();
-    println!("Project Info {:?}", res );
+    let info = mock_info("user1", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    println!("Emergency Withdraw {:?}", res);
+//set operator
+    let msg = ExecuteMsg::SetOperator{
+        operator: Addr::unchecked("user1".to_string()),
+    };
+
+    let info = mock_info("admin", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    println!("Set Operator {:?}", res);
+//Governance Recover Unsupported
+    let msg = ExecuteMsg::GovernanceRecoverUnsupported{
+        token: Addr::unchecked("token3".to_string()),
+        amount: Uint128::from(10_000u128),
+        to: Addr::unchecked("user3".to_string())
+    };
+
+    let info = mock_info("user1", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    println!("Governance Recover Unsupported {:?}", res);
+// -Get Pool Info-----------------
+    let msg = QueryMsg::GetPoolInfo{};
+    let pool_info = query(deps.as_ref(), mock_env(), msg).unwrap();
+
+    let res: Vec<PoolInfo> = from_binary(&pool_info).unwrap();
+    println!("Pool Info {:?}", res );
+    
+//get user info
+    let msg = QueryMsg::GetUserInfo{
+        pid: Uint128::zero(),
+        user: Addr::unchecked("user1".to_string())
+    };
+    let user_info = query(deps.as_ref(), mock_env(), msg).unwrap();
+
+    let res: UserInfo = from_binary(&user_info).unwrap();
+    println!("User Info {:?}", res );
+
 }
 

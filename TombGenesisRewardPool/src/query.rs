@@ -2,14 +2,11 @@
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     to_binary, Binary, Deps, Env, StdResult, Addr,
-    Uint128, QueryRequest, BankQuery,
-    Coin, AllBalanceResponse,
+    Uint128
 };
 
-use cw20::{ Cw20QueryMsg, BalanceResponse as Cw20BalanceResponse, TokenInfoResponse };
-
-use crate::msg::{QueryMsg, UserInfo, PoolInfo};
-use crate::state::{OPERATOR, TOMB, SHIBA, POOLINFO, USERINFO, TOTALALLOCPOINT, POOLSTARTTIME, POOLENDTIME};
+use crate::msg::{QueryMsg};
+use crate::state::{OPERATOR, POOLINFO, USERINFO, TOTALALLOCPOINT};
 use crate::contract::{get_generated_reward, balance_of, ETHER};
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -34,8 +31,8 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             to_binary(&pool_info)
         }
 
-        QueryMsg::GetUserInfo{ pid } => {
-            let user_info = USERINFO.load(deps.storage, pid.u128().into()).unwrap();
+        QueryMsg::GetUserInfo{ pid, user } => {
+            let user_info = USERINFO.load(deps.storage, (pid.u128().into(), &user)).unwrap();
             to_binary(&user_info)
         }
     }
@@ -46,8 +43,7 @@ fn get_pending_tomb(deps: Deps, env: Env, pid: Uint128, user: Addr) -> StdResult
     let pool_info = &mut POOLINFO.load(deps.storage)?;
     let pool = &pool_info[pid.u128() as usize];
 
-    let user_info = &USERINFO.load(deps.storage, pid.u128().into())?;
-    let _user = &user_info[&user];
+    let _user = USERINFO.load(deps.storage, (pid.u128().into(), &user))?;
     
     let mut acc_tomb_per_share = pool.accTombPerShare;
     let token_supply = balance_of(deps.querier, &pool.token, &env.contract.address);

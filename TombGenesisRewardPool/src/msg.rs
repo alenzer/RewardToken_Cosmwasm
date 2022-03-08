@@ -1,7 +1,6 @@
 use cosmwasm_std::{Uint128, Addr};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use cw_storage_plus::{Map, U128Key};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
@@ -63,6 +62,7 @@ pub enum QueryMsg {
     GetPoolInfo{ },
     GetUserInfo{ 
         pid: Uint128,
+        user: Addr
     }
 }
 

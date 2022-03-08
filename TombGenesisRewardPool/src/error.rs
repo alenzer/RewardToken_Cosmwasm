@@ -1,6 +1,5 @@
 use cosmwasm_std::StdError;
 use thiserror::Error;
-use cosmwasm_std::{Uint128};
 
 #[derive(Error, Debug)]
 pub enum ContractError {
@@ -23,5 +22,11 @@ pub enum ContractError {
     Tomb {},
 
     #[error("Token should not be pool token")]
-    PoolToken {}
+    PoolToken {},
+
+    #[error("User not exist")]
+    UserNotExist {},
+    
+    #[error("Error:{e1}")]
+    Testing{e1: String}
 }

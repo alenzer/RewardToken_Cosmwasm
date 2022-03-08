@@ -6,7 +6,7 @@ use cosmwasm_std::{
     Uint128, CosmosMsg, WasmMsg, Storage
 };
 use cw2::set_contract_version;
-use cw20::{Cw20ExecuteMsg, Cw20QueryMsg, BalanceResponse as Cw20BalanceResponse, TokenInfoResponse};
+use cw20::{Cw20ExecuteMsg, Cw20QueryMsg, BalanceResponse as Cw20BalanceResponse};
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, UserInfo, PoolInfo};
@@ -42,6 +42,10 @@ pub fn instantiate(
     POOLENDTIME.save(deps.storage, &pool_end_time)?;
 
     OPERATOR.save(deps.storage, &info.sender)?;
+
+    POOLINFO.save(deps.storage, &Vec::new())?;
+    TOTALALLOCPOINT.save(deps.storage, &Uint128::zero())?;
+
     Ok(Response::new()
         .add_attribute("method", "instantiate"))
 }
@@ -58,9 +62,12 @@ pub fn balance_of(querier: QuerierWrapper, _token: &Addr, _address: &Addr) -> u1
 fn check_pool_duplicate(deps: &DepsMut, _token: Addr) -> bool {
     let pool_info: Vec<PoolInfo> = POOLINFO.load(deps.storage).unwrap();
     let length = pool_info.len();
-    for pid in 0 .. length-1  {
-        if pool_info[pid].token == _token{
-            return true;
+
+    if length > 0{
+        for pid in 0 .. length  {
+            if pool_info[pid].token == _token{
+                return true;
+            }
         }
     }
     false
@@ -70,7 +77,7 @@ fn mass_update_pools(deps: DepsMut, env: Env) {
     let length = pool_info.len();
 
     let mut _deps = deps;
-    for pid in 0 .. length-1 {
+    for pid in 0 .. length {
         update_pool(_deps.branch(), &env, pid);
     }
 }
@@ -162,7 +169,30 @@ fn safe_tomb_transfer( deps: DepsMut, env: Env, _to: Addr, _amount: Uint128) -> 
 
     None
 }
+fn get_user(storage: &mut dyn Storage, pid: Uint128, sender: Addr, can_register: bool) 
+    -> Result<UserInfo, ContractError>
+{
+    let user: UserInfo;
+    let key = (pid.u128().into(), &sender);
+    let res = USERINFO.may_load(storage, key.clone());
 
+    if res == Ok(None){ //not exist
+        user = UserInfo{
+            amount: Uint128::zero(),
+            rewardDebt: Uint128::zero()
+        };
+
+        if can_register == true {
+            USERINFO.save(storage, key, &user)?;
+        }
+        else{
+            return Err(ContractError::UserNotExist{ });
+        }
+    } else{
+        user = USERINFO.load(storage, key)?;
+    }
+    Ok(user)
+}
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn execute(
     deps: DepsMut,
@@ -172,10 +202,10 @@ pub fn execute(
 ) -> Result<Response, ContractError> {
     match msg {
         ExecuteMsg::Add{ alloc_point, token, with_update, last_reward_time}
-            => try_add(deps, env, info, alloc_point, token, with_update, last_reward_time ),
+            => try_add(deps, env, alloc_point, token, with_update, last_reward_time ),
 
         ExecuteMsg::Set{ pid, alloc_point}
-            => try_set(deps, env, info, pid, alloc_point ),
+            => try_set(deps, env, pid, alloc_point ),
 
         ExecuteMsg::MassUpdatePools{ }
             => { 
@@ -196,7 +226,7 @@ pub fn execute(
             => try_withdraw(deps, env, info, pid, amount),
 
         ExecuteMsg::EmergencyWithdraw{ pid }
-            => try_emergency_withdraw(deps, env, info, pid),
+            => try_emergency_withdraw(deps, info, pid),
 
         ExecuteMsg::SetOperator{ operator }
             => try_setoperator(deps, info, operator),
@@ -230,7 +260,7 @@ pub fn try_governance_recover_unsupported(
 
         let pool_info = POOLINFO.load(deps.storage)?;
         let length = pool_info.len();
-        for pid in 0 .. length-1 {
+        for pid in 0 .. length {
             let pool = &pool_info[pid];
             if token == pool.token{
                 return Err(ContractError::PoolToken{ })
@@ -270,7 +300,6 @@ pub fn try_setoperator(
 }
 pub fn try_emergency_withdraw(
     deps: DepsMut,
-    env: Env,
     info: MessageInfo,
     pid: Uint128,
 )
@@ -280,14 +309,7 @@ pub fn try_emergency_withdraw(
     let pool_info = &mut POOLINFO.load(deps.storage)?;
     let pool = &mut pool_info[pid.u128() as usize];
 
-    let user_info = &mut USERINFO.load(deps.storage, pid.u128().into())?;
-    let mut user: UserInfo = match user_info.get(&_sender){
-        Some(e) => e.clone(),
-        None => UserInfo{
-            amount: Uint128::zero(),
-            rewardDebt: Uint128::zero()
-        },
-    };
+    let mut user = get_user(deps.storage, pid.u128().into(), _sender.clone(), false)?;
 
     let amount: Uint128 = user.amount;
     user.amount = Uint128::zero();
@@ -308,8 +330,7 @@ pub fn try_emergency_withdraw(
         msgs.push(CosmosMsg::Wasm(msg_transfer_from));
     }
 
-    user_info.insert(_sender, user);
-    USERINFO.save(deps.storage, pid.u128().into(), &user_info)?;
+    USERINFO.save(deps.storage, (pid.u128().into(), &_sender), &user)?;
     Ok(Response::new()
         .add_attribute("action", "emergency withdraw"))
 }
@@ -326,14 +347,7 @@ pub fn try_withdraw(
     let pool_info = &mut POOLINFO.load(deps.storage)?;
     let pool = &mut pool_info[pid.u128() as usize];
 
-    let user_info = &mut USERINFO.load(deps.storage, pid.u128().into())?;
-    let mut user: UserInfo = match user_info.get(&_sender){
-        Some(e) => e.clone(),
-        None => UserInfo{
-            amount: Uint128::zero(),
-            rewardDebt: Uint128::zero()
-        },
-    };
+    let mut user = get_user(deps.storage, pid, _sender.clone(), false)?;
     if user.amount < amount {
         return Err(ContractError::WithdrawFail{})
     }
@@ -347,10 +361,11 @@ pub fn try_withdraw(
         if msg != None {
             msgs.push(msg.unwrap());
         }
-        // emit RewardPaid(_sender, _pending);
     }
 
     if amount > Uint128::zero() {
+        user.amount = user.amount - amount;
+        
         let msg_transfer_from = WasmMsg::Execute {
             contract_addr: pool.token.to_string(),
             msg: to_binary(
@@ -365,13 +380,14 @@ pub fn try_withdraw(
     }
 
     user.rewardDebt = user.amount * pool.accTombPerShare / Uint128::from(ETHER);
-    user_info.insert(_sender, user);
-    USERINFO.save(_deps.storage, pid.u128().into(), &user_info)?;
+    
+    USERINFO.save(_deps.storage, (pid.u128().into(), &_sender), &user)?;
 
     Ok(Response::new()
         .add_messages(msgs)
         .add_attribute("action", "withdraw"))
 }
+
 pub fn try_deposit(
     deps: DepsMut,
     env: Env,
@@ -385,15 +401,7 @@ pub fn try_deposit(
     let pool_info = &mut POOLINFO.load(deps.storage)?;
     let pool = &mut pool_info[pid.u128() as usize];
 
-    let user_info = &mut USERINFO.load(deps.storage, pid.u128().into())?;
-    // let user_option = user_info.get(&_sender);
-    let mut user: UserInfo = match user_info.get(&_sender){
-        Some(e) => e.clone(),
-        None => UserInfo{
-            amount: Uint128::zero(),
-            rewardDebt: Uint128::zero()
-        },
-    };
+    let mut user: UserInfo = get_user(deps.storage, pid, _sender.clone(), true)?;
 
     let mut _deps = deps;
     update_pool(_deps.branch(), &env, pid.u128() as usize);
@@ -405,7 +413,6 @@ pub fn try_deposit(
             if msg != None {
                 msgs.push(msg.unwrap());
             }
-            // emit RewardPaid(_sender, _pending);
         }
     }
 
@@ -431,9 +438,9 @@ pub fn try_deposit(
         }
     }
     user.rewardDebt = user.amount * pool.accTombPerShare / Uint128::from(ETHER);
-    user_info.insert(_sender, user);
-    USERINFO.save(_deps.storage, pid.u128().into(), &user_info)?;
-    // emit Deposit(_sender, _pid, _amount);
+
+    USERINFO.save(_deps.storage, (pid.u128().into(), &_sender), &user)?;
+
     Ok(Response::new()
         .add_messages(msgs)
         .add_attribute("action", "deposit"))
@@ -441,7 +448,6 @@ pub fn try_deposit(
 pub fn try_set(
     deps: DepsMut,
     env: Env,
-    info: MessageInfo,
     pid: Uint128,
     alloc_point: Uint128
 )
@@ -466,7 +472,6 @@ pub fn try_set(
 pub fn try_add(
     deps: DepsMut, 
     env: Env, 
-    info: MessageInfo, 
     alloc_point: Uint128,
     token: Addr,
     with_update: bool,
@@ -477,7 +482,7 @@ pub fn try_add(
     if check_pool_duplicate(&deps, token.clone()) == true {
         return Err(ContractError::AlreadyExistingPool {})
     }
-
+    
     let mut _deps = deps; 
     if with_update == true {
         mass_update_pools(_deps.branch(), env.clone());
@@ -521,8 +526,10 @@ pub fn try_add(
         total_alloc_point = total_alloc_point + alloc_point;
         TOTALALLOCPOINT.save(_deps.storage, &total_alloc_point)?;
     }
+    POOLINFO.save(_deps.storage, &pool_info)?;
 
     Ok(Response::new()
-        .add_attribute("action", "add"))                                
+        .add_attribute("action", "add")
+    )                                
 }
 
