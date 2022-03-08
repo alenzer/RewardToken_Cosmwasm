@@ -15,4 +15,13 @@ pub enum ContractError {
 
     #[error("TombGenesisPool: existing pool?")]
     AlreadyExistingPool {},
+
+    #[error("Withdraw: not good")]
+    WithdrawFail {},
+
+    #[error("Token should not be tomb")]
+    Tomb {},
+
+    #[error("Token should not be pool token")]
+    PoolToken {}
 }

@@ -5,9 +5,9 @@ use cw_storage_plus::{Map, U128Key};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
-    pub tomb: String,
-    pub shiba: String,
-    pub poolStartTime: Uint128
+    pub TOMB: String,
+    pub SHIBA: String,
+    pub POOLSTARTTIME: Uint128
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -22,13 +22,48 @@ pub enum ExecuteMsg {
     Set {
         pid: Uint128,
         alloc_point: Uint128,
-    }
+    },
+    MassUpdatePools{},
+    UpdatePool{
+        pid: Uint128
+    },
+    Deposit{
+        pid: Uint128,
+        amount: Uint128
+    },
+    Withdraw{
+        pid: Uint128,
+        amount: Uint128
+    },
+    EmergencyWithdraw{
+        pid: Uint128
+    },
+    SetOperator{
+        operator: Addr
+    },
+    GovernanceRecoverUnsupported{
+        token: Addr,
+        amount: Uint128,
+        to: Addr
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
-    GetOwner{ }
+    GetOwner{ },
+    GetGeneratedReward{
+        from_time: Uint128,
+        to_time: Uint128
+    },
+    PendingTomb{
+        pid: Uint128,
+        user: Addr
+    },
+    GetPoolInfo{ },
+    GetUserInfo{ 
+        pid: Uint128,
+    }
 }
 
 // Info of each user.

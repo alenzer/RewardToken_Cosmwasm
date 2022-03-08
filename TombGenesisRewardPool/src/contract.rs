@@ -2,7 +2,7 @@
 use cosmwasm_std::entry_point;
 
 use cosmwasm_std::{
-    Addr, to_binary, DepsMut, Env, MessageInfo, Response,
+    Addr, to_binary, DepsMut, Env, MessageInfo, Response, QuerierWrapper,
     Uint128, CosmosMsg, WasmMsg, Storage
 };
 use cw2::set_contract_version;
@@ -10,7 +10,7 @@ use cw20::{Cw20ExecuteMsg, Cw20QueryMsg, BalanceResponse as Cw20BalanceResponse,
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, UserInfo, PoolInfo};
-use crate::state::{operator, tomb, shiba, poolInfo, userInfo, totalAllocPoint, poolStartTime, poolEndTime};
+use crate::state::{OPERATOR, TOMB, SHIBA, POOLINFO, USERINFO, TOTALALLOCPOINT, POOLSTARTTIME, POOLENDTIME};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "TombGenesisRewardPool";
@@ -18,6 +18,8 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const TOMB_PER_SECOND: u128 = 96_450_000_000_000_000; //0.09645 ether; // 25000 TOMB / (72h * 60min * 60s);
 const RUNNING_TIME: u128 = 259_200; //3 days;
 const TOTAL_REWARDS: u128 = 25_000_000_000_000_000_000_000; //25000 ether;
+pub const ETHER: u128 = 1_000_000_000_000_000_000u128;
+pub const DAY: u128 = 86_400; //1 day
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -28,24 +30,24 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
-    if msg.poolStartTime < Uint128::from(env.block.time.seconds()){
+    if msg.POOLSTARTTIME < Uint128::from(env.block.time.seconds()){
         return Err(ContractError::Late{})
     }
     
-    tomb.save(deps.storage, &deps.api.addr_validate(msg.tomb.as_str())?)?;
-    shiba.save(deps.storage, &deps.api.addr_validate(msg.shiba.as_str())?)?;
-    poolStartTime.save(deps.storage, &msg.poolStartTime)?;
+    TOMB.save(deps.storage, &deps.api.addr_validate(msg.TOMB.as_str())?)?;
+    SHIBA.save(deps.storage, &deps.api.addr_validate(msg.SHIBA.as_str())?)?;
+    POOLSTARTTIME.save(deps.storage, &msg.POOLSTARTTIME)?;
 
-    let pool_end_time: Uint128 = msg.poolStartTime + Uint128::from(RUNNING_TIME);
-    poolEndTime.save(deps.storage, &pool_end_time)?;
+    let pool_end_time: Uint128 = msg.POOLSTARTTIME + Uint128::from(RUNNING_TIME);
+    POOLENDTIME.save(deps.storage, &pool_end_time)?;
 
-    operator.save(deps.storage, &info.sender)?;
+    OPERATOR.save(deps.storage, &info.sender)?;
     Ok(Response::new()
         .add_attribute("method", "instantiate"))
 }
 
-fn balance_of(deps: &DepsMut, _token: &Addr, _address: &Addr) -> u128 {
-    let token_balance: Cw20BalanceResponse = deps.querier.query_wasm_smart(
+pub fn balance_of(querier: QuerierWrapper, _token: &Addr, _address: &Addr) -> u128 {
+    let token_balance: Cw20BalanceResponse = querier.query_wasm_smart(
         _token,
         &Cw20QueryMsg::Balance{
             address: _address.to_string(),
@@ -54,7 +56,7 @@ fn balance_of(deps: &DepsMut, _token: &Addr, _address: &Addr) -> u128 {
     token_balance.balance.u128()
 }
 fn check_pool_duplicate(deps: &DepsMut, _token: Addr) -> bool {
-    let pool_info: Vec<PoolInfo> = poolInfo.load(deps.storage).unwrap();
+    let pool_info: Vec<PoolInfo> = POOLINFO.load(deps.storage).unwrap();
     let length = pool_info.len();
     for pid in 0 .. length-1  {
         if pool_info[pid].token == _token{
@@ -64,7 +66,7 @@ fn check_pool_duplicate(deps: &DepsMut, _token: Addr) -> bool {
     false
 }
 fn mass_update_pools(deps: DepsMut, env: Env) {
-    let pool_info: Vec<PoolInfo> = poolInfo.load(deps.storage).unwrap();
+    let pool_info: Vec<PoolInfo> = POOLINFO.load(deps.storage).unwrap();
     let length = pool_info.len();
 
     let mut _deps = deps;
@@ -73,38 +75,42 @@ fn mass_update_pools(deps: DepsMut, env: Env) {
     }
 }
 fn update_pool(deps: DepsMut, env: &Env, _pid: usize) {
-    let pool_info: Vec<PoolInfo> = poolInfo.load(deps.storage).unwrap();
-    let mut pool = pool_info[_pid].clone();
-    if Uint128::from(env.block.time.seconds()) <= pool.lastRewardTime {
+    let mut pool_info: Vec<PoolInfo> = POOLINFO.load(deps.storage).unwrap();
+    let mut pool = &mut pool_info[_pid];
+    let blocktime = Uint128::from(env.block.time.seconds());
+
+    if blocktime <= pool.lastRewardTime {
         return;
     }
 
-    let token_supply: u128 = balance_of(&deps, &pool.token, &env.contract.address);
+    let token_supply: u128 = balance_of(deps.querier, &pool.token, &env.contract.address);
     if token_supply == 0 {
-        pool.lastRewardTime = Uint128::from(env.block.time.seconds());
+        pool.lastRewardTime = blocktime;
         return;
     }
 
-    let mut total_alloc_point = totalAllocPoint.load(deps.storage).unwrap();
+    let mut total_alloc_point = TOTALALLOCPOINT.load(deps.storage).unwrap();
     if !pool.isStarted {
         pool.isStarted = true;
         total_alloc_point = total_alloc_point + pool.allocPoint;
-        totalAllocPoint.save(deps.storage, &total_alloc_point).unwrap();
+        TOTALALLOCPOINT.save(deps.storage, &total_alloc_point).unwrap();
     }
+
     if total_alloc_point > Uint128::zero() {
-        // uint256 _generatedReward = get_generated_reward(pool.lastRewardTime, block.timestamp);
-        // uint256 _tombReward = _generatedReward.mul(pool.allocPoint).div(totalAllocPoint);
-        // pool.accTombPerShare = pool.accTombPerShare.add(_tombReward.mul(1e18).div(token_supply));
+        let generated_reward = get_generated_reward(deps.storage, pool.lastRewardTime, blocktime);
+        let tomb_reward = Uint128::from(generated_reward) * pool.allocPoint / total_alloc_point;
+        pool.accTombPerShare += tomb_reward * Uint128::from(ETHER) / Uint128::from(token_supply);
     }
-    pool.lastRewardTime = Uint128::from(env.block.time.seconds());
+    pool.lastRewardTime = blocktime;
+    POOLINFO.save(deps.storage, &pool_info).unwrap();
 }
-fn get_generated_reward(deps: DepsMut, from_time: Uint128, to_time: Uint128) -> u128 {
+pub fn get_generated_reward(storage: &dyn Storage, from_time: Uint128, to_time: Uint128) -> u128 {
     if from_time >= to_time {
         return 0;
     }
 
-    let mut pool_end_time = poolEndTime.load(deps.storage).unwrap();
-    let pool_start_time = poolStartTime.load(deps.storage).unwrap();
+    let mut pool_end_time = POOLENDTIME.load(storage).unwrap();
+    let pool_start_time = POOLSTARTTIME.load(storage).unwrap();
 
     if to_time >= pool_end_time {
         if from_time >= pool_end_time{ 
@@ -117,7 +123,6 @@ fn get_generated_reward(deps: DepsMut, from_time: Uint128, to_time: Uint128) -> 
             pool_end_time = (pool_end_time - from_time) * Uint128::from(TOMB_PER_SECOND);
         }
 
-        poolEndTime.save(deps.storage, &pool_end_time).unwrap();
         return pool_end_time.u128();
     } else {
         if to_time <= pool_start_time { 
@@ -132,6 +137,32 @@ fn get_generated_reward(deps: DepsMut, from_time: Uint128, to_time: Uint128) -> 
     }
 }
 
+fn safe_tomb_transfer( deps: DepsMut, env: Env, _to: Addr, _amount: Uint128) -> Option<CosmosMsg> {
+    let tomb = TOMB.load(deps.storage).unwrap();
+    let tomb_balance = balance_of(deps.querier, &tomb, &env.contract.address);
+    
+    if tomb_balance > 0 {
+        let mut amount = _amount;
+        if _amount > Uint128::from(tomb_balance) {
+            amount = Uint128::from(tomb_balance);
+        }
+
+        let msg_transfer = WasmMsg::Execute {
+            contract_addr: tomb.to_string(),
+            msg: to_binary(
+                &Cw20ExecuteMsg::Transfer {
+                    recipient: _to.to_string(),
+                    amount: amount
+                }
+            ).unwrap(),
+            funds: vec![]
+        };
+        return Some(CosmosMsg::Wasm(msg_transfer));
+    }
+
+    None
+}
+
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn execute(
     deps: DepsMut,
@@ -144,10 +175,269 @@ pub fn execute(
             => try_add(deps, env, info, alloc_point, token, with_update, last_reward_time ),
 
         ExecuteMsg::Set{ pid, alloc_point}
-            => try_set(deps, env, info, pic, alloc_point ),
+            => try_set(deps, env, info, pid, alloc_point ),
+
+        ExecuteMsg::MassUpdatePools{ }
+            => { 
+                mass_update_pools(deps, env);
+                Ok(Response::new())
+            },
+
+        ExecuteMsg::UpdatePool{ pid }
+            => {
+                update_pool(deps, &env, pid.u128() as usize);
+                Ok(Response::new())
+            },
+        
+        ExecuteMsg::Deposit{ pid, amount }
+            => try_deposit(deps, env, info, pid, amount),
+
+        ExecuteMsg::Withdraw{ pid, amount }
+            => try_withdraw(deps, env, info, pid, amount),
+
+        ExecuteMsg::EmergencyWithdraw{ pid }
+            => try_emergency_withdraw(deps, env, info, pid),
+
+        ExecuteMsg::SetOperator{ operator }
+            => try_setoperator(deps, info, operator),
+
+        ExecuteMsg::GovernanceRecoverUnsupported{ token, amount, to }
+            => try_governance_recover_unsupported(deps, env, info, token, amount, to),
     }
 }
+pub fn try_governance_recover_unsupported(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    token: Addr,
+    amount: Uint128,
+    to: Addr
+)
+    -> Result<Response, ContractError>
+{
+    let operator = OPERATOR.load(deps.storage)?;
+    if operator != info.sender {
+        return Err(ContractError::Unauthorized{ });
+    }
 
+    let pool_end_time = POOLENDTIME.load(deps.storage)?;
+    if Uint128::from(env.block.time.seconds()) < pool_end_time + Uint128::from(90 * DAY) {
+        // do not allow to drain core token (TOMB or lps) if less than 90 days after pool ends
+        let tomb = TOMB.load(deps.storage)?;
+        if token == tomb {
+            return Err(ContractError::Tomb{ });
+        }
+
+        let pool_info = POOLINFO.load(deps.storage)?;
+        let length = pool_info.len();
+        for pid in 0 .. length-1 {
+            let pool = &pool_info[pid];
+            if token == pool.token{
+                return Err(ContractError::PoolToken{ })
+            }
+        }
+    }
+
+    let msg_transfer = WasmMsg::Execute {
+        contract_addr: token.to_string(),
+        msg: to_binary(
+            &Cw20ExecuteMsg::Transfer {
+                recipient: to.to_string(),
+                amount: amount
+            }
+        ).unwrap(),
+        funds: vec![]
+    };
+
+    Ok(Response::new()
+        .add_message(CosmosMsg::Wasm(msg_transfer))
+        .add_attribute("action", "Governance recover unsupported"))
+}
+pub fn try_setoperator(
+    deps: DepsMut,
+    info: MessageInfo,
+    operator: Addr
+)
+    -> Result<Response, ContractError>
+{
+    let _operator = OPERATOR.load(deps.storage)?;
+    if _operator != info.sender {
+        return Err(ContractError::Unauthorized{ });
+    }
+    OPERATOR.save(deps.storage, &operator)?;
+    Ok(Response::new()
+        .add_attribute("action", "Set Operator"))
+}
+pub fn try_emergency_withdraw(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    pid: Uint128,
+)
+    -> Result<Response, ContractError>
+{
+    let _sender = info.sender;
+    let pool_info = &mut POOLINFO.load(deps.storage)?;
+    let pool = &mut pool_info[pid.u128() as usize];
+
+    let user_info = &mut USERINFO.load(deps.storage, pid.u128().into())?;
+    let mut user: UserInfo = match user_info.get(&_sender){
+        Some(e) => e.clone(),
+        None => UserInfo{
+            amount: Uint128::zero(),
+            rewardDebt: Uint128::zero()
+        },
+    };
+
+    let amount: Uint128 = user.amount;
+    user.amount = Uint128::zero();
+    user.rewardDebt = Uint128::zero();
+
+    let mut msgs: Vec<CosmosMsg> = vec![];
+    if amount > Uint128::zero() {
+        let msg_transfer_from = WasmMsg::Execute {
+            contract_addr: pool.token.to_string(),
+            msg: to_binary(
+                &Cw20ExecuteMsg::Transfer {
+                    recipient: _sender.to_string(),
+                    amount: amount
+                }
+            ).unwrap(),
+            funds: vec![]
+        };
+        msgs.push(CosmosMsg::Wasm(msg_transfer_from));
+    }
+
+    user_info.insert(_sender, user);
+    USERINFO.save(deps.storage, pid.u128().into(), &user_info)?;
+    Ok(Response::new()
+        .add_attribute("action", "emergency withdraw"))
+}
+pub fn try_withdraw(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    pid: Uint128,
+    amount: Uint128
+)
+    -> Result<Response, ContractError>
+{
+    let _sender = info.sender;
+    let pool_info = &mut POOLINFO.load(deps.storage)?;
+    let pool = &mut pool_info[pid.u128() as usize];
+
+    let user_info = &mut USERINFO.load(deps.storage, pid.u128().into())?;
+    let mut user: UserInfo = match user_info.get(&_sender){
+        Some(e) => e.clone(),
+        None => UserInfo{
+            amount: Uint128::zero(),
+            rewardDebt: Uint128::zero()
+        },
+    };
+    if user.amount < amount {
+        return Err(ContractError::WithdrawFail{})
+    }
+    let mut _deps = deps;
+    update_pool(_deps.branch(), &env, pid.u128() as usize);
+
+    let mut msgs: Vec<CosmosMsg> = vec![];
+    let _pending = user.amount * pool.accTombPerShare / Uint128::from(ETHER) - user.rewardDebt;
+    if _pending > Uint128::zero() {
+        let msg = safe_tomb_transfer(_deps.branch(), env.clone(), _sender.clone(), _pending);
+        if msg != None {
+            msgs.push(msg.unwrap());
+        }
+        // emit RewardPaid(_sender, _pending);
+    }
+
+    if amount > Uint128::zero() {
+        let msg_transfer_from = WasmMsg::Execute {
+            contract_addr: pool.token.to_string(),
+            msg: to_binary(
+                &Cw20ExecuteMsg::Transfer {
+                    recipient: _sender.to_string(),
+                    amount: amount
+                }
+            ).unwrap(),
+            funds: vec![]
+        };
+        msgs.push(CosmosMsg::Wasm(msg_transfer_from));
+    }
+
+    user.rewardDebt = user.amount * pool.accTombPerShare / Uint128::from(ETHER);
+    user_info.insert(_sender, user);
+    USERINFO.save(_deps.storage, pid.u128().into(), &user_info)?;
+
+    Ok(Response::new()
+        .add_messages(msgs)
+        .add_attribute("action", "withdraw"))
+}
+pub fn try_deposit(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    pid: Uint128,
+    amount: Uint128
+)
+    -> Result<Response, ContractError>
+{
+    let _sender = info.sender;
+    let pool_info = &mut POOLINFO.load(deps.storage)?;
+    let pool = &mut pool_info[pid.u128() as usize];
+
+    let user_info = &mut USERINFO.load(deps.storage, pid.u128().into())?;
+    // let user_option = user_info.get(&_sender);
+    let mut user: UserInfo = match user_info.get(&_sender){
+        Some(e) => e.clone(),
+        None => UserInfo{
+            amount: Uint128::zero(),
+            rewardDebt: Uint128::zero()
+        },
+    };
+
+    let mut _deps = deps;
+    update_pool(_deps.branch(), &env, pid.u128() as usize);
+    let mut msgs: Vec<CosmosMsg> = vec![];
+    if user.amount > Uint128::zero() {
+        let _pending = user.amount * pool.accTombPerShare / Uint128::from(ETHER) - user.rewardDebt;
+        if _pending > Uint128::zero() {
+            let msg = safe_tomb_transfer(_deps.branch(), env.clone(), _sender.clone(), _pending);
+            if msg != None {
+                msgs.push(msg.unwrap());
+            }
+            // emit RewardPaid(_sender, _pending);
+        }
+    }
+
+    if amount > Uint128::zero() {
+        let msg_transfer_from = WasmMsg::Execute {
+            contract_addr: pool.token.to_string(),
+            msg: to_binary(
+                &Cw20ExecuteMsg::TransferFrom {
+                    owner: _sender.to_string(),
+                    recipient: env.contract.address.to_string(),
+                    amount: amount
+                }
+            ).unwrap(),
+            funds: vec![]
+        };
+        msgs.push(CosmosMsg::Wasm(msg_transfer_from));
+
+        let shiba = SHIBA.load(_deps.storage)?;
+        if pool.token == shiba {
+            user.amount = user.amount + amount * Uint128::from(9900u128) / Uint128::from(10000u128);
+        } else {
+            user.amount = user.amount + amount;
+        }
+    }
+    user.rewardDebt = user.amount * pool.accTombPerShare / Uint128::from(ETHER);
+    user_info.insert(_sender, user);
+    USERINFO.save(_deps.storage, pid.u128().into(), &user_info)?;
+    // emit Deposit(_sender, _pid, _amount);
+    Ok(Response::new()
+        .add_messages(msgs)
+        .add_attribute("action", "deposit"))
+}
 pub fn try_set(
     deps: DepsMut,
     env: Env,
@@ -157,7 +447,19 @@ pub fn try_set(
 )
     -> Result<Response, ContractError>
 {
+    let mut _deps = deps;
+    mass_update_pools(_deps.branch(), env);
 
+    let mut pool_info = POOLINFO.load(_deps.storage)?;
+    let mut pool = &mut pool_info[pid.u128() as usize];
+    if pool.isStarted == true {
+        let mut total_alloc_point = TOTALALLOCPOINT.load(_deps.storage)?;
+        total_alloc_point = total_alloc_point - pool.allocPoint + alloc_point;
+        TOTALALLOCPOINT.save(_deps.storage, &total_alloc_point)?;
+    }
+    pool.allocPoint = alloc_point;
+
+    POOLINFO.save(_deps.storage, &pool_info)?;
     Ok(Response::new()
         .add_attribute("action", "set"))
 }
@@ -181,7 +483,7 @@ pub fn try_add(
         mass_update_pools(_deps.branch(), env.clone());
     }
 
-    let pool_start_time = poolStartTime.load(_deps.storage)?;
+    let pool_start_time = POOLSTARTTIME.load(_deps.storage)?;
     let mut _last_reward_time = last_reward_time;
     let blocktime = Uint128::from(env.block.time.seconds());
 
@@ -205,7 +507,7 @@ pub fn try_add(
             (last_reward_time <= pool_start_time) ||
             (last_reward_time <= blocktime);
 
-    let mut pool_info = poolInfo.load(_deps.storage)?;
+    let mut pool_info = POOLINFO.load(_deps.storage)?;
     pool_info.push(PoolInfo{
         token : token,
         allocPoint : alloc_point,
@@ -215,9 +517,9 @@ pub fn try_add(
         });
 
     if is_started == true {
-        let mut total_alloc_point = totalAllocPoint.load(_deps.storage)?;
+        let mut total_alloc_point = TOTALALLOCPOINT.load(_deps.storage)?;
         total_alloc_point = total_alloc_point + alloc_point;
-        totalAllocPoint.save(_deps.storage, &total_alloc_point)?;
+        TOTALALLOCPOINT.save(_deps.storage, &total_alloc_point)?;
     }
 
     Ok(Response::new()
