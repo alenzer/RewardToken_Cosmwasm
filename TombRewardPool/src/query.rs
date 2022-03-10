@@ -55,7 +55,7 @@ fn get_pending_tomb(deps: Deps, env: Env, pid: Uint128, user: Addr) -> StdResult
         let total_alloc_point = TOTALALLOCPOINT.load(deps.storage)?;
         
         let tomb_reward = Uint128::from(generated_reward) * pool.allocPoint / total_alloc_point;
-        acc_tomb_per_share = acc_tomb_per_share + tomb_reward * Uint128::from(ETHER) / Uint128::from(token_supply);
+        acc_tomb_per_share += tomb_reward * Uint128::from(ETHER) / Uint128::from(token_supply);
     }
 
     Ok(_user.amount * acc_tomb_per_share / Uint128::from(ETHER) - _user.rewardDebt)

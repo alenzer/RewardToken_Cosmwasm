@@ -139,11 +139,12 @@ pub fn get_generated_reward(storage: &dyn Storage, from_time: Uint128, to_time: 
                 if from_time >= epoch_end_time[epoch_id - 1] {
                     return (generated_reward + ((epoch_end_time[epoch_id]-from_time) * epoch_tomb_per_second[epoch_id])).u128();
                 }
-                generated_reward = generated_reward + 
+                generated_reward +=  
                     (epoch_end_time[epoch_id] - epoch_end_time[epoch_id - 1]) * epoch_tomb_per_second[epoch_id];
             }
             return (generated_reward + (epoch_end_time[0]-from_time) * epoch_tomb_per_second[0]).u128();
         }
+        return ((to_time - from_time) * epoch_tomb_per_second[0]).u128();
     }
     0u128
 }
@@ -254,23 +255,24 @@ pub fn try_governance_recover_unsupported(
         return Err(ContractError::Unauthorized{ });
     }
 
-    // let pool_end_time = POOLENDTIME.load(deps.storage)?;
-    // if Uint128::from(env.block.time.seconds()) < pool_end_time + Uint128::from(90 * DAY) {
-    //     // do not allow to drain core token (TOMB or lps) if less than 90 days after pool ends
-    //     let tomb = TOMB.load(deps.storage)?;
-    //     if token == tomb {
-    //         return Err(ContractError::Tomb{ });
-    //     }
+    let epoch_end_times = EPOCHENDTIMES.load(deps.storage)?;
+    
+    if Uint128::from(env.block.time.seconds()) < epoch_end_times[1] + Uint128::from(90 * DAY) {
+        // do not allow to drain core token (TOMB or lps) if less than 90 days after pool ends
+        let tomb = TOMB.load(deps.storage)?;
+        if token == tomb {
+            return Err(ContractError::Tomb{ });
+        }
 
-    //     let pool_info = POOLINFO.load(deps.storage)?;
-    //     let length = pool_info.len();
-    //     for pid in 0 .. length {
-    //         let pool = &pool_info[pid];
-    //         if token == pool.token{
-    //             return Err(ContractError::PoolToken{ })
-    //         }
-    //     }
-    // }
+        let pool_info = POOLINFO.load(deps.storage)?;
+        let length = pool_info.len();
+        for pid in 0 .. length {
+            let pool = &pool_info[pid];
+            if token == pool.token{
+                return Err(ContractError::PoolToken{ })
+            }
+        }
+    }
 
     let msg_transfer = WasmMsg::Execute {
         contract_addr: token.to_string(),
