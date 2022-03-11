@@ -1,21 +1,17 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "VestingParameter",
+  "title": "InstantiateMsg",
   "type": "object",
   "required": [
-    "after",
-    "period",
-    "soon"
+    "POOLSTARTTIME",
+    "TOMB"
   ],
   "properties": {
-    "after": {
+    "POOLSTARTTIME": {
       "$ref": "#/definitions/Uint128"
     },
-    "period": {
-      "$ref": "#/definitions/Uint128"
-    },
-    "soon": {
-      "$ref": "#/definitions/Uint128"
+    "TOMB": {
+      "type": "string"
     }
   },
   "definitions": {
