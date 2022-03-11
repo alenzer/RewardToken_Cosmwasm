@@ -10,14 +10,14 @@ use cw20::{Cw20ExecuteMsg, Cw20QueryMsg, BalanceResponse as Cw20BalanceResponse}
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, UserInfo, PoolInfo};
-use crate::state::{OPERATOR, TOMB, SHIBA, POOLINFO, USERINFO, TOTALALLOCPOINT, POOLSTARTTIME, POOLENDTIME};
+use crate::state::{OPERATOR, TSHARE, POOLINFO, USERINFO, TOTALALLOCPOINT, POOLSTARTTIME, POOLENDTIME};
 
 // version info for migration info
-const CONTRACT_NAME: &str = "TombGenesisRewardPool";
+const CONTRACT_NAME: &str = "TShareRewardPool";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
-const TOMB_PER_SECOND: u128 = 96_450_000_000_000_000; //0.09645 ether; // 25000 TOMB / (72h * 60min * 60s);
-const RUNNING_TIME: u128 = 259_200; //3 days;
-const TOTAL_REWARDS: u128 = 25_000_000_000_000_000_000_000; //25000 ether;
+const TSHARE_PER_SECOND: u128 = 1_876_870_000_000_000; //0.00187687 ether; // 60000 3share / (370 days * 24h * 60min * 60s)
+const RUNNING_TIME: u128 = 31_968_000; //370 days;
+const TOTAL_REWARDS: u128 = 60_000_000_000_000_000_000_000; //60000 ether;
 pub const ETHER: u128 = 1_000_000_000_000_000_000u128;
 pub const DAY: u128 = 86_400; //1 day
 
@@ -34,8 +34,7 @@ pub fn instantiate(
         return Err(ContractError::Late{})
     }
     
-    TOMB.save(deps.storage, &deps.api.addr_validate(msg.TOMB.as_str())?)?;
-    SHIBA.save(deps.storage, &deps.api.addr_validate(msg.SHIBA.as_str())?)?;
+    TSHARE.save(deps.storage, &deps.api.addr_validate(msg.TSHARE.as_str())?)?;
     POOLSTARTTIME.save(deps.storage, &msg.POOLSTARTTIME)?;
 
     let pool_end_time: Uint128 = msg.POOLSTARTTIME + Uint128::from(RUNNING_TIME);
@@ -105,8 +104,8 @@ fn update_pool(deps: DepsMut, env: &Env, _pid: usize) {
 
     if total_alloc_point > Uint128::zero() {
         let generated_reward = get_generated_reward(deps.storage, pool.lastRewardTime, blocktime);
-        let tomb_reward = Uint128::from(generated_reward) * pool.allocPoint / total_alloc_point;
-        pool.accTombPerShare += tomb_reward * Uint128::from(ETHER) / Uint128::from(token_supply);
+        let tshare_reward = Uint128::from(generated_reward) * pool.allocPoint / total_alloc_point;
+        pool.accTSharePerShare += tshare_reward * Uint128::from(ETHER) / Uint128::from(token_supply);
     }
     pool.lastRewardTime = blocktime;
     POOLINFO.save(deps.storage, &pool_info).unwrap();
@@ -124,10 +123,10 @@ pub fn get_generated_reward(storage: &dyn Storage, from_time: Uint128, to_time: 
             return 0;
         }
         if from_time <= pool_start_time {
-            pool_end_time = (pool_end_time - pool_start_time) * Uint128::from(TOMB_PER_SECOND);
+            pool_end_time = (pool_end_time - pool_start_time) * Uint128::from(TSHARE_PER_SECOND);
         }
         else {
-            pool_end_time = (pool_end_time - from_time) * Uint128::from(TOMB_PER_SECOND);
+            pool_end_time = (pool_end_time - from_time) * Uint128::from(TSHARE_PER_SECOND);
         }
 
         return pool_end_time.u128();
@@ -137,25 +136,25 @@ pub fn get_generated_reward(storage: &dyn Storage, from_time: Uint128, to_time: 
         }
 
         if from_time <= pool_start_time {
-          return (to_time - pool_start_time).u128() * TOMB_PER_SECOND;
+          return (to_time - pool_start_time).u128() * TSHARE_PER_SECOND;
         }
 
-        return (to_time - from_time).u128() * TOMB_PER_SECOND;
+        return (to_time - from_time).u128() * TSHARE_PER_SECOND;
     }
 }
 
-fn safe_tomb_transfer( deps: DepsMut, env: Env, _to: Addr, _amount: Uint128) -> Option<CosmosMsg> {
-    let tomb = TOMB.load(deps.storage).unwrap();
-    let tomb_balance = balance_of(deps.querier, &tomb, &env.contract.address);
+fn safe_tshare_transfer( deps: DepsMut, env: Env, _to: Addr, _amount: Uint128) -> Option<CosmosMsg> {
+    let tshare = TSHARE.load(deps.storage).unwrap();
+    let tshare_balance = balance_of(deps.querier, &tshare, &env.contract.address);
     
-    if tomb_balance > 0 {
+    if tshare_balance > 0 {
         let mut amount = _amount;
-        if _amount > Uint128::from(tomb_balance) {
-            amount = Uint128::from(tomb_balance);
+        if _amount > Uint128::from(tshare_balance) {
+            amount = Uint128::from(tshare_balance);
         }
 
         let msg_transfer = WasmMsg::Execute {
-            contract_addr: tomb.to_string(),
+            contract_addr: tshare.to_string(),
             msg: to_binary(
                 &Cw20ExecuteMsg::Transfer {
                     recipient: _to.to_string(),
@@ -252,10 +251,10 @@ pub fn try_governance_recover_unsupported(
 
     let pool_end_time = POOLENDTIME.load(deps.storage)?;
     if Uint128::from(env.block.time.seconds()) < pool_end_time + Uint128::from(90 * DAY) {
-        // do not allow to drain core token (TOMB or lps) if less than 90 days after pool ends
-        let tomb = TOMB.load(deps.storage)?;
-        if token == tomb {
-            return Err(ContractError::Tomb{ });
+        // do not allow to drain core token (TSHARE or lps) if less than 90 days after pool ends
+        let tshare = TSHARE.load(deps.storage)?;
+        if token == tshare {
+            return Err(ContractError::TShare{ });
         }
 
         let pool_info = POOLINFO.load(deps.storage)?;
@@ -355,9 +354,9 @@ pub fn try_withdraw(
     update_pool(_deps.branch(), &env, pid.u128() as usize);
 
     let mut msgs: Vec<CosmosMsg> = vec![];
-    let _pending = user.amount * pool.accTombPerShare / Uint128::from(ETHER) - user.rewardDebt;
+    let _pending = user.amount * pool.accTSharePerShare / Uint128::from(ETHER) - user.rewardDebt;
     if _pending > Uint128::zero() {
-        let msg = safe_tomb_transfer(_deps.branch(), env.clone(), _sender.clone(), _pending);
+        let msg = safe_tshare_transfer(_deps.branch(), env.clone(), _sender.clone(), _pending);
         if msg != None {
             msgs.push(msg.unwrap());
         }
@@ -379,7 +378,7 @@ pub fn try_withdraw(
         msgs.push(CosmosMsg::Wasm(msg_transfer_from));
     }
 
-    user.rewardDebt = user.amount * pool.accTombPerShare / Uint128::from(ETHER);
+    user.rewardDebt = user.amount * pool.accTSharePerShare / Uint128::from(ETHER);
     
     USERINFO.save(_deps.storage, (pid.u128().into(), &_sender), &user)?;
 
@@ -407,9 +406,9 @@ pub fn try_deposit(
     update_pool(_deps.branch(), &env, pid.u128() as usize);
     let mut msgs: Vec<CosmosMsg> = vec![];
     if user.amount > Uint128::zero() {
-        let _pending = user.amount * pool.accTombPerShare / Uint128::from(ETHER) - user.rewardDebt;
+        let _pending = user.amount * pool.accTSharePerShare / Uint128::from(ETHER) - user.rewardDebt;
         if _pending > Uint128::zero() {
-            let msg = safe_tomb_transfer(_deps.branch(), env.clone(), _sender.clone(), _pending);
+            let msg = safe_tshare_transfer(_deps.branch(), env.clone(), _sender.clone(), _pending);
             if msg != None {
                 msgs.push(msg.unwrap());
             }
@@ -430,17 +429,10 @@ pub fn try_deposit(
         };
         msgs.push(CosmosMsg::Wasm(msg_transfer_from));
 
-        let shiba = SHIBA.load(_deps.storage)?;
-        if pool.token == shiba {
-            user.amount = user.amount + amount * Uint128::from(9900u128) / Uint128::from(10000u128);
-        } else {
-            user.amount = user.amount + amount;
-        }
+        user.amount = user.amount + amount;
     }
-    user.rewardDebt = user.amount * pool.accTombPerShare / Uint128::from(ETHER);
-
+    user.rewardDebt = user.amount * pool.accTSharePerShare / Uint128::from(ETHER);
     USERINFO.save(_deps.storage, (pid.u128().into(), &_sender), &user)?;
-
     Ok(Response::new()
         .add_messages(msgs)
         .add_attribute("action", "deposit"))
@@ -517,7 +509,7 @@ pub fn try_add(
         token : token,
         allocPoint : alloc_point,
         lastRewardTime : _last_reward_time,
-        accTombPerShare : Uint128::zero(),
+        accTSharePerShare : Uint128::zero(),
         isStarted : is_started
         });
 

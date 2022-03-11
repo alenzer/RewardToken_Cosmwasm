@@ -4,17 +4,13 @@
   "type": "object",
   "required": [
     "POOLSTARTTIME",
-    "SHIBA",
-    "TOMB"
+    "TSHARE"
   ],
   "properties": {
     "POOLSTARTTIME": {
       "$ref": "#/definitions/Uint128"
     },
-    "SHIBA": {
-      "type": "string"
-    },
-    "TOMB": {
+    "TSHARE": {
       "type": "string"
     }
   },

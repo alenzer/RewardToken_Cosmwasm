@@ -18,8 +18,8 @@ pub enum ContractError {
     #[error("Withdraw: not good")]
     WithdrawFail {},
 
-    #[error("Token should not be tomb")]
-    Tomb {},
+    #[error("Token should not be TShare")]
+    TShare {},
 
     #[error("Token should not be pool token")]
     PoolToken {},

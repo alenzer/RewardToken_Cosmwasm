@@ -4,8 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
-    pub TOMB: String,
-    pub SHIBA: String,
+    pub TSHARE: String,
     pub POOLSTARTTIME: Uint128
 }
 
@@ -55,7 +54,7 @@ pub enum QueryMsg {
         from_time: Uint128,
         to_time: Uint128
     },
-    PendingTomb{
+    PendingShare{
         pid: Uint128,
         user: Addr
     },
@@ -77,8 +76,8 @@ pub struct UserInfo {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct PoolInfo {
     pub token: Addr, // Address of LP token contract.
-    pub allocPoint: Uint128, // How many allocation points assigned to this pool. TOMB to distribute.
-    pub lastRewardTime: Uint128, // Last time that TOMB distribution occurs.
-    pub accTombPerShare: Uint128, // Accumulated TOMB per share, times 1e18. See below.
+    pub allocPoint: Uint128, // How many allocation points assigned to this pool. TSHARE to distribute.
+    pub lastRewardTime: Uint128, // Last time that TSHARE distribution occurs.
+    pub accTSharePerShare: Uint128, // Accumulated TSHARE per share, times 1e18. See below.
     pub isStarted: bool, // if lastRewardBlock has passed
 }

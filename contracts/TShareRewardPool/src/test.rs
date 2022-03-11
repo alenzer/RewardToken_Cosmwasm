@@ -13,7 +13,7 @@ fn workflow(){
     let mut deps = mock_dependencies(&[]);
     
     let msg = InstantiateMsg{
-        TOMB: "tomb".to_string(),
+        TSHARE: "tomb".to_string(),
         SHIBA: "shiba".to_string(),
         POOLSTARTTIME: Uint128::from(mock_env().block.time.seconds() + 1000)
     };
