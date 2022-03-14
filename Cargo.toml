@@ -1,5 +1,5 @@
 [workspace]
-members = ["contracts/*"]
+members = ["contracts/*", "packages/*"]
 
 [profile.release.package.TombGenesisRewardPool]
 codegen-units = 1
@@ -12,6 +12,11 @@ incremental = false
 [profile.release.package.TShareRewardPool]
 codegen-units = 1
 incremental = false
+
+[profile.release.package.Oracle]
+codegen-units = 1
+incremental = false
+
 
 [profile.release]
 rpath = false
