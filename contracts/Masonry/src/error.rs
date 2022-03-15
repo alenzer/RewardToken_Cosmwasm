@@ -9,24 +9,27 @@ pub enum ContractError {
     #[error("Unauthorized")]
     Unauthorized {},
 
-    #[error("Late")]
-    Late {},
+    #[error("WithdrawLockupEpochs:out of range")]
+    OutofRange {},
 
-    #[error("TombGenesisPool: existing pool?")]
-    AlreadyExistingPool {},
+    #[error("Masonry doesn't exist")]
+    MasonryNotExist {},
 
-    #[error("Withdraw: not good")]
-    WithdrawFail {},
+    #[error("Already Initialized")]
+    AlreadyInitialized {},
 
-    #[error("Token should not be tomb")]
-    Tomb {},
+    #[error("Can't 0 stake")]
+    ZeroStake{ },
 
-    #[error("Token should not be pool token")]
-    PoolToken {},
+    #[error("Can't 0 unstake")]
+    ZeroUnstake{ },
 
-    #[error("User not exist")]
-    UserNotExist {},
-    
-    #[error("Error:{e1}")]
-    Testing{e1: String}
+    #[error("Can't 0 allocation")]
+    ZeroAllocation{},
+
+    #[error("Masonry: Cannot allocate when totalSupply is 0")]
+    ZeroTotalSupply{},
+
+    #[error("Invalid token transfer")]
+    InvalidToken{}
 }

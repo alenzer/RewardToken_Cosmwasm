@@ -5,58 +5,52 @@ use cosmwasm_std::{
     Uint128
 };
 
-use crate::msg::{QueryMsg};
-use crate::state::{OPERATOR, POOLINFO, USERINFO, TOTALALLOCPOINT};
-use crate::contract::{get_generated_reward, balance_of, ETHER};
+use crate::msg::{QueryMsg, Masonseat};
+use crate::state::{OPERATOR, TOMB, SHARE, TOTALSUPPLY, INITIALIZED, BALANCES,
+    TREASURY, MASONS, MASONRY_HISTORY, WITHDRAW_LOCKUP_EPOCHS, REWARD_LOCKUP_EPOCHS};
+use crate::contract::{get_latest_snapshot, get_last_snapshot_of, balance_of};
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::GetOwner{ } => {
-            let owner = OPERATOR.load(deps.storage).unwrap();
-            to_binary(&owner)
-        }
+        QueryMsg::LatestSnapshotIndex{ } => {
+            let masonry_history = MASONRY_HISTORY.load(deps.storage)?;
+            to_binary(&(masonry_history.len() -1))
+        },
+        QueryMsg::GetLastSnapshotIndexOf{ mason } => {
+            let _mason = MASONS.load(deps.storage, mason)?;
+            to_binary(&_mason.last_snapshot_index)
+        },
+        QueryMsg::CanWithdraw{ mason } => {
+            let _mason = MASONS.load(deps.storage, mason)?;
+            let withdraw_lockup_epochs = WITHDRAW_LOCKUP_EPOCHS.load(deps.storage)?;
+            let treasury = TREASURY.load(deps.storage)?;
 
-        QueryMsg::GetGeneratedReward{ from_time, to_time } => {
-            let res: u128 = get_generated_reward(deps.storage, from_time, to_time);
-            to_binary(&res)
-        }
-
-        QueryMsg::PendingTomb{ pid, user } => {
-            to_binary(&get_pending_tomb(deps, env, pid, user)?)
-        }
-
-        QueryMsg::GetPoolInfo{ } => {
-            let pool_info = POOLINFO.load(deps.storage).unwrap();
-            to_binary(&pool_info)
-        }
-
-        QueryMsg::GetUserInfo{ pid, user } => {
-            let user_info = USERINFO.load(deps.storage, (pid.u128().into(), &user)).unwrap();
-            to_binary(&user_info)
+            // let epoch = deps.querier.query_wasm_smart(treasury, msg: )
+            // let res = (_mason.epochTimerStart + withdrawLockupEpochs) <= treasury.epoch();
+            to_binary(&Uint128::zero())
+        },
+        QueryMsg::CanClaimReward{ mason: Addr } => {
+            to_binary(&Uint128::zero())
+        },
+        QueryMsg::Epoch{ } => {
+            to_binary(&Uint128::zero())
+        },
+        QueryMsg::NextEpochPoint{ } => {
+            to_binary(&Uint128::zero())
+        },
+        QueryMsg::GetTombPrice{ } => {
+            to_binary(&Uint128::zero())
+        },
+        QueryMsg::RewardPerShare{ } => {
+            get_latest_snapshot().reward_per_share
+        },
+        QueryMsg::Earned{ mason } => {
+            let latest_rps = get_latest_snapshot().reward_per_share;
+            let stored_rps = get_last_snapshot_of(mason).reward_per_share;
+            let balance = balance_of(deps.storage, mason);
+            let mason = MASONS.load(deps.storage, mason).unwrap();
+            return balance * (latest_rps-stored_rps) / ((1u64).pow(18u64)) + mason.reward_earned;
         }
     }
-}
-
-fn get_pending_tomb(deps: Deps, env: Env, pid: Uint128, user: Addr) -> StdResult<Uint128>
-{
-    let pool_info = &mut POOLINFO.load(deps.storage)?;
-    let pool = &pool_info[pid.u128() as usize];
-
-    let _user = USERINFO.load(deps.storage, (pid.u128().into(), &user))?;
-    
-    let mut acc_tomb_per_share = pool.accTombPerShare;
-    let token_supply = balance_of(deps.querier, &pool.token, &env.contract.address);
-    let blocktime = Uint128::from(env.block.time.seconds());
-    
-    if blocktime > pool.lastRewardTime && token_supply != 0 {
-        let generated_reward = get_generated_reward(deps.storage, pool.lastRewardTime, blocktime);
-
-        let total_alloc_point = TOTALALLOCPOINT.load(deps.storage)?;
-        
-        let tomb_reward = Uint128::from(generated_reward) * pool.allocPoint / total_alloc_point;
-        acc_tomb_per_share += tomb_reward * Uint128::from(ETHER) / Uint128::from(token_supply);
-    }
-
-    Ok(_user.amount * acc_tomb_per_share / Uint128::from(ETHER) - _user.rewardDebt)
 }

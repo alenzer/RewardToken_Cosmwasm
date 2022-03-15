@@ -11,58 +11,45 @@ pub struct InstantiateMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    Add {
-        alloc_point: Uint128,
-        token: Addr,
-        with_update: bool,
-        last_reward_time: Uint128
+    Initialize {
+        tomb: Addr,
+        share: Addr,
+        treasury: Addr,
     },
-    Set {
-        pid: Uint128,
-        alloc_point: Uint128,
-    },
-    MassUpdatePools{},
-    UpdatePool{
-        pid: Uint128
-    },
-    Deposit{
-        pid: Uint128,
-        amount: Uint128
-    },
-    Withdraw{
-        pid: Uint128,
-        amount: Uint128
-    },
-    EmergencyWithdraw{
-        pid: Uint128
-    },
-    SetOperator{
+    SetOperator {
         operator: Addr
     },
-    GovernanceRecoverUnsupported{
-        token: Addr,
-        amount: Uint128,
-        to: Addr
+    SetLockUp {
+        withdraw_lockup_epochs: Uint128,
+        reward_lockup_epochs: Uint128
     },
+    Stake{ amount: Uint128 },
+    Withdraw{ amount: Uint128 },
+    Exit{ },
+    ClaimReward{ },
+    AllocateSeigniorage{ amount: Uint128 },
+    GovernanceRecoverUnsupported{ 
+        token: Addr, 
+        amount: Uint128, 
+        to: Addr 
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
-    GetOwner{ },
-    GetGeneratedReward{
-        from_time: Uint128,
-        to_time: Uint128
-    },
-    PendingTomb{
-        pid: Uint128,
-        user: Addr
-    },
-    GetPoolInfo{ },
-    GetUserInfo{ 
-        pid: Uint128,
-        user: Addr
-    }
+    LatestSnapshotIndex{ },
+    GetLastSnapshotIndexOf{ mason: Addr },
+    CanWithdraw{ mason: Addr },
+    CanClaimReward{ mason: Addr },
+    Epoch{ },
+    NextEpochPoint{ },
+    GetTombPrice{ },
+
+    RewardPerShare{ },
+    Earned{ mason: Addr },
+
+
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
