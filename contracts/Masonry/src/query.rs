@@ -13,6 +13,10 @@ use crate::contract::{get_latest_snapshot, get_last_snapshot_of, balance_of};
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
+        QueryMsg::Operator{ } =>{
+            to_binary(&OPERATOR.load(deps.storage)?)
+        }
+
         QueryMsg::LatestSnapshotIndex{ } => {
             let masonry_history = MASONRY_HISTORY.load(deps.storage)?;
             to_binary(&(masonry_history.len() -1))
@@ -43,14 +47,15 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             to_binary(&Uint128::zero())
         },
         QueryMsg::RewardPerShare{ } => {
-            get_latest_snapshot().reward_per_share
+            to_binary(&(get_latest_snapshot(deps.storage).reward_per_share))
         },
         QueryMsg::Earned{ mason } => {
-            let latest_rps = get_latest_snapshot().reward_per_share;
-            let stored_rps = get_last_snapshot_of(mason).reward_per_share;
-            let balance = balance_of(deps.storage, mason);
+            let latest_rps = get_latest_snapshot(deps.storage).reward_per_share;
+            let stored_rps = get_last_snapshot_of(deps.storage, mason.clone()).reward_per_share;
+            let balance = balance_of(deps.storage, mason.clone());
             let mason = MASONS.load(deps.storage, mason).unwrap();
-            return balance * (latest_rps-stored_rps) / ((1u64).pow(18u64)) + mason.reward_earned;
+            let res = balance * (latest_rps-stored_rps) / Uint128::from((10u64).pow(18u32)) + mason.reward_earned;
+            to_binary(&res)
         }
     }
 }

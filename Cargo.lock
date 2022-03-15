@@ -3,6 +3,32 @@
 version = 3
 
 [[package]]
+name = "BasisAsset"
+version = "0.0.1"
+dependencies = [
+ "cosmwasm-schema 0.16.5",
+ "cosmwasm-std 0.16.5",
+ "cosmwasm-storage",
+ "cw20",
+ "schemars",
+ "serde",
+ "terra-cosmwasm",
+]
+
+[[package]]
+name = "BondTreasury"
+version = "0.0.1"
+dependencies = [
+ "cosmwasm-schema 0.16.5",
+ "cosmwasm-std 0.16.5",
+ "cosmwasm-storage",
+ "cw20",
+ "schemars",
+ "serde",
+ "terra-cosmwasm",
+]
+
+[[package]]
 name = "Masonry"
 version = "0.0.1"
 dependencies = [
@@ -76,6 +102,25 @@ dependencies = [
  "cw20",
  "schemars",
  "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "Treasury"
+version = "0.0.1"
+dependencies = [
+ "BasisAsset",
+ "Masonry",
+ "Oracle",
+ "cosmwasm-bignumber",
+ "cosmwasm-schema 0.16.5",
+ "cosmwasm-std 0.16.5",
+ "cw-storage-plus",
+ "cw2",
+ "cw20",
+ "schemars",
+ "serde",
+ "terraswap",
  "thiserror",
 ]
 

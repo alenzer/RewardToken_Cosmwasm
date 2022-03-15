@@ -33,7 +33,7 @@ pub fn instantiate(
 }
 
 pub fn balance_of(storage: &dyn Storage, sender: Addr) -> Uint128{
-    BALANCES.load(storage, sender).unwrap()
+    BALANCES.load(storage, sender.clone()).unwrap()
 }
 pub fn check_onlyoperator(storage: &dyn Storage, sender: Addr) -> Result<Response, ContractError> {
     let operator = OPERATOR.load(storage)?;
@@ -70,16 +70,16 @@ pub fn get_latest_snapshot(storage: &dyn Storage) -> MasonrySnapshot {
     let masonry_history = MASONRY_HISTORY.load(storage).unwrap();
     let len = masonry_history.len();
 
-    masonry_history[len-1]
+    masonry_history[len-1].clone()
 }
 
 pub fn get_last_snapshot_of(storage: &dyn Storage, mason: Addr) -> MasonrySnapshot {
     let mason = MASONS.load(storage, mason).unwrap();
     let masonry_history = MASONRY_HISTORY.load(storage).unwrap();
-    masonry_history[(mason.last_snapshot_index.u128() as usize)]
+    masonry_history[(mason.last_snapshot_index.u128() as usize)].clone()
 }
 fn safe_transferfrom( deps: DepsMut, token: Addr, _from: Addr, _to: Addr, _amount: Uint128) -> StdResult<CosmosMsg> {
-    let token_balance = query_token_balance(&deps.querier, token, _from).unwrap();
+    let token_balance = query_token_balance(&deps.querier, token.clone(), _from.clone()).unwrap();
     
     if token_balance > Uint128::zero() {
         let mut amount = _amount;
@@ -163,24 +163,24 @@ pub fn try_initialize(
 {
     check_not_initialized(deps.storage)?;
 
-    TOMB.save(deps.storage, &tomb);
-    SHARE.save(deps.storage, &share);
-    TREASURY.save(deps.storage, &treasury);
+    TOMB.save(deps.storage, &tomb)?;
+    SHARE.save(deps.storage, &share)?;
+    TREASURY.save(deps.storage, &treasury)?;
 
-    let genesisSnapshot: MasonrySnapshot = MasonrySnapshot{
+    let genesis_snapshot: MasonrySnapshot = MasonrySnapshot{
         time : Uint128::from(env.block.time.seconds()), 
         reward_received : Uint128::zero(), 
         reward_per_share : Uint128::zero()
     };
     let mut masonry_history: Vec<MasonrySnapshot> = Vec::new();
-    masonry_history.push(genesisSnapshot);
+    masonry_history.push(genesis_snapshot);
     MASONRY_HISTORY.save(deps.storage, &masonry_history)?;
 
     WITHDRAW_LOCKUP_EPOCHS.save(deps.storage, &Uint128::from(3u128))?;// Lock for 6 epochs (36h) before release withdraw
     REWARD_LOCKUP_EPOCHS.save(deps.storage, &Uint128::from(10u128))?; // Lock for 3 epochs (18h) before release claimReward
 
     INITIALIZED.save(deps.storage, &true)?;
-    OPERATOR.save(deps.storage, &info.sender);
+    OPERATOR.save(deps.storage, &info.sender)?;
 
     Ok(Response::new()
         .add_attribute("action", "initialize"))
@@ -223,33 +223,31 @@ pub fn try_setlockup(
 pub fn _stake(
     deps: DepsMut,
     env: Env,
-    info: MessageInfo,
+    sender: Addr,
     amount: Uint128
 )
     -> StdResult<CosmosMsg>
 {
-    let total_supply = TOTALSUPPLY.load(deps.storage)?;
+    let mut total_supply = TOTALSUPPLY.load(deps.storage)?;
     total_supply += amount;
     TOTALSUPPLY.save(deps.storage, &total_supply)?;
 
-    let balance = BALANCES.load(deps.storage, info.sender)?;
+    let mut balance = BALANCES.load(deps.storage, sender.clone())?;
     balance += amount;
-    BALANCES.save(deps.storage, info.sender, &balance)?;
+    BALANCES.save(deps.storage, sender.clone(), &balance)?;
     
-    let share = SHARE.load(deps.storage)?;
-
-    safe_share_transferfrom(deps, info.sender, env.contract.address, amount)
+    safe_share_transferfrom(deps, sender, env.contract.address, amount)
 }
 
 pub fn _withdraw(
     deps: DepsMut,
     env: Env,
-    info: MessageInfo,
+    sender: Addr,
     amount: Uint128
 )
     -> StdResult<CosmosMsg>
 {
-    let mut mason_share = BALANCES.load(deps.storage, info.sender)?;
+    let mut mason_share = BALANCES.load(deps.storage, sender.clone())?;
     if mason_share < amount {
         return Err(StdError::GenericErr { 
             msg: "Masonry: withdraw request greater than staked amount".to_string() 
@@ -261,9 +259,9 @@ pub fn _withdraw(
     TOTALSUPPLY.save(deps.storage, &total_supply)?;
 
     mason_share -= amount;
-    BALANCES.save(deps.storage, info.sender, &mason_share)?;
+    BALANCES.save(deps.storage, sender.clone(), &mason_share)?;
     
-    safe_share_transferfrom(deps, env.contract.address,info.sender,  amount)
+    safe_share_transferfrom(deps, env.contract.address,sender,  amount)
 }
 
 pub fn try_stake(
@@ -274,12 +272,13 @@ pub fn try_stake(
 )
     ->Result<Response, ContractError>
 {
-    update_reward(deps.storage, info.sender)?;
+    let sender = info.sender;
+    update_reward(deps.storage, sender.clone())?;
 
     if amount <= Uint128::zero() {
         return Err(ContractError::ZeroStake{ })
     }
-    let msg = _stake(deps, env, info, amount)?;
+    let msg = _stake(deps, env, sender, amount)?;
     // masons[msg.sender].epochTimerStart = treasury.epoch(); // reset timer
     Ok(Response::new()
         .add_message(msg))
@@ -293,15 +292,16 @@ pub fn try_withdraw(
 )
     ->Result<Response, ContractError>
 {
-    check_mason_exists(deps.storage, info.sender)?;
-    update_reward(deps.storage, info.sender)?;
+    let sender = info.sender;
+    check_mason_exists(deps.storage, sender.clone())?;
+    update_reward(deps.storage, sender.clone())?;
     if amount <= Uint128::zero() {
         return Err(ContractError::ZeroUnstake{ })
     }
 
     // require(masons[msg.sender].epochTimerStart.add(withdrawLockupEpochs) <= treasury.epoch(), "Masonry: still in withdraw lockup");
     // claimReward();
-    let msg = _withdraw(deps, env, info, amount)?;
+    let msg = _withdraw(deps, env, sender, amount)?;
     Ok(Response::new()
         .add_message(msg))
 }
@@ -313,8 +313,9 @@ pub fn try_exit(
 )
     ->Result<Response, ContractError>
 {
+    let _info = info.clone();
     let balance = balance_of(deps.storage, info.sender);
-    try_withdraw(deps, env, info, balance)
+    try_withdraw(deps, env, _info, balance)
 }
 
 pub fn try_claimreward(
@@ -324,8 +325,9 @@ pub fn try_claimreward(
 )
     ->Result<Response, ContractError>
 {
-    update_reward(deps.storage, info.sender)?;
-    let mut mason = MASONS.load(deps.storage, info.sender)?;
+    let sender = info.sender;
+    update_reward(deps.storage, sender.clone())?;
+    let mut mason = MASONS.load(deps.storage, sender.clone())?;
 
     let reward = mason.reward_earned;
     if reward > Uint128::zero() {
@@ -334,7 +336,7 @@ pub fn try_claimreward(
         mason.reward_earned = Uint128::zero();
         // tomb.safeTransfer(msg.sender, reward);
         // emit RewardPaid(msg.sender, reward);
-        let msg = safe_tomb_transferfrom(deps, env.contract.address, info.sender, reward)?;
+        let msg = safe_tomb_transferfrom(deps, env.contract.address, sender, reward)?;
         return Ok(Response::new()
             .add_message(msg));
     }
@@ -349,7 +351,8 @@ pub fn try_allocate_seigniorage(
 )
     ->Result<Response, ContractError>
 {
-    check_onlyoperator(deps.storage, info.sender)?;
+    let sender = info.sender;
+    check_onlyoperator(deps.storage, sender.clone())?;
 
     if amount <= Uint128::zero() {
         return Err(ContractError::ZeroAllocation {  });
@@ -372,7 +375,7 @@ pub fn try_allocate_seigniorage(
     masonry_history.push(new_snapshot);
     MASONRY_HISTORY.save(deps.storage, &masonry_history)?;
 
-    let msg = safe_tomb_transferfrom(deps, info.sender, env.contract.address, amount)?;
+    let msg = safe_tomb_transferfrom(deps, sender, env.contract.address, amount)?;
     Ok(Response::new()
         .add_message(msg))
 }
