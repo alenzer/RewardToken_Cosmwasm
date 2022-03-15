@@ -87,10 +87,50 @@ pub enum ExecuteMsg {
         tomb_amount: Uint128,
         target_price: Uint128,
     },
+    RedeemBonds{
+        bond_amount: Uint128,
+        target_price: Uint128,
+    },
+    SendToMasonry{
+        amount: Uint128
+    },
+    SendToBondTreasury{
+        amount: Uint128
+    },
+    AllocateSeigniorage{},
+    GovernanceRecoverUnsupported{
+        token: Addr,
+        amount: Uint128,
+        to: Addr
+    },
+    MasonrySetOperator{
+        operator: Addr
+    },
+    MasonrySetLockup{
+        withdraw_lockup_epochs: Uint128,
+        reward_lockup_epochs: Uint128,
+    },
+    MasonryAllocationSeigniorage{
+        amount: Uint128
+    },
+    MasonryGovernanceRecoverUnsupported{
+        token: Addr,
+        amount: Uint128,
+        to: Addr
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
-
+    IsInitialized{},
+    NextEpochPoint{},
+    GetTombPrice{},
+    GetTombUpdatedPrice{},
+    GetReserve{},
+    GetBurnableTombLeft{},
+    GetRedeemableBonds{},
+    GetBondDiscountRate{},
+    GetBondPremiumRate{},
+    Epoch{}
 }

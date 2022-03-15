@@ -29,9 +29,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "ERC20"
+version = "0.0.1"
+dependencies = [
+ "cosmwasm-schema 1.0.0-beta6",
+ "cosmwasm-std 0.16.5",
+ "cosmwasm-storage",
+ "cosmwasm-vm",
+ "cw-storage-plus",
+ "cw20",
+ "schemars",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "IMasonry"
+version = "0.0.1"
+dependencies = [
+ "cosmwasm-schema 0.16.5",
+ "cosmwasm-std 0.16.5",
+ "cosmwasm-storage",
+ "cw20",
+ "schemars",
+ "serde",
+ "terra-cosmwasm",
+]
+
+[[package]]
 name = "Masonry"
 version = "0.0.1"
 dependencies = [
+ "IMasonry",
+ "Treasury",
  "cosmwasm-bignumber",
  "cosmwasm-schema 0.16.5",
  "cosmwasm-std 0.16.5",
@@ -110,7 +140,8 @@ name = "Treasury"
 version = "0.0.1"
 dependencies = [
  "BasisAsset",
- "Masonry",
+ "BondTreasury",
+ "IMasonry",
  "Oracle",
  "cosmwasm-bignumber",
  "cosmwasm-schema 0.16.5",
@@ -1647,21 +1678,6 @@ checksum = "ca8a50ef2360fbd1eeb0ecd46795a87a19024eb4b53c5dc916ca1fd95fe62438"
 dependencies = [
  "libc",
  "winapi",
-]
-
-[[package]]
-name = "tombgenesisrewardpool"
-version = "0.0.1"
-dependencies = [
- "cosmwasm-schema 1.0.0-beta6",
- "cosmwasm-std 0.16.5",
- "cosmwasm-storage",
- "cosmwasm-vm",
- "cw-storage-plus",
- "cw20",
- "schemars",
- "serde",
- "thiserror",
 ]
 
 [[package]]

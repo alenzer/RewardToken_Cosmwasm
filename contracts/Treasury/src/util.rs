@@ -1,5 +1,5 @@
 use crate::error::ContractError;
-use Masonry::query::query;
+
 use cosmwasm_std::{ Storage, Uint128, Addr, StdResult, StdError, Response, Env, QuerierWrapper, Querier};
 use terraswap::querier;
 use crate::state::{
@@ -19,12 +19,12 @@ use crate::state::{
 };
 use crate::contract::{PERIOD};
 use BasisAsset::msg::{QueryMsg as BasisAssetQuery};
-use Masonry::msg::{QueryMsg as MasonryQuery};
+use IMasonry::msg::{QueryMsg as MasonryQuery};
 use Oracle::msg::{QueryMsg as OracleQuery};
 use terraswap::querier::{query_token_balance};
 use terraswap::asset::{AssetInfo};
 
-pub const ETHER: Uint128 = Uint128::from((10u64).pow(18u32));
+pub const ETHER: u128 = 1_000_000_000_000_000_000u128;
 
 pub fn check_onlyoperator(storage: &dyn Storage, sender: Addr) -> Result<Response, ContractError> {
     let operator = OPERATOR.load(storage)?;
@@ -46,7 +46,7 @@ pub fn check_epoch(storage: &mut dyn Storage, env: Env) -> Result<Response, Cont
     if Uint128::from(env.block.time.seconds()) < next_epoch_point(storage)? {
         return Err(ContractError::NotOpenedYet{ });
     }
-    let epoch = EPOCH.load(storage)?;
+    let mut epoch = EPOCH.load(storage)?;
     epoch += Uint128::from(1u128);
     EPOCH.save(storage, &epoch);
     
@@ -95,7 +95,7 @@ pub fn is_initialized(storage: &dyn Storage) -> StdResult<bool>{
 pub fn next_epoch_point(storage: &dyn Storage) -> StdResult<Uint128> {
     let starttime = START_TIME.load(storage)?;
     let epoch = EPOCH.load(storage)?;
-    Ok(starttime + epoch * PERIOD)
+    Ok(starttime + epoch * Uint128::from(PERIOD))
 }
 
 // oracle
@@ -107,7 +107,7 @@ pub fn get_tomb_price(storage: &dyn Storage, querier: &QuerierWrapper) -> StdRes
         TOMB_ORACLE.load(storage)?,
         &OracleQuery::Consult { 
                 token: tomb_asset, 
-                amount_in: ETHER
+                amount_in: Uint128::from(ETHER)
             }
     )?;
 
@@ -121,7 +121,7 @@ pub fn get_tomb_updated_price(storage: &dyn Storage, querier: &QuerierWrapper) -
         TOMB_ORACLE.load(storage)?,
         &OracleQuery::Twap { 
                 token: tomb_asset, 
-                amount_in: ETHER 
+                amount_in: Uint128::from(ETHER) 
             }
     )?;
 
@@ -134,7 +134,7 @@ pub fn get_reserve(storage: &dyn Storage) -> StdResult<Uint128> {
 pub fn get_burnable_tomb_left(storage: &dyn Storage, querier: &QuerierWrapper) -> StdResult<Uint128> {
     let tomb_price = get_tomb_price(storage, querier)?;
     let tomb_price_one = TOMB_PRICE_ONE.load(storage)?;
-    let burnable_tomb_left: Uint128;
+    let mut burnable_tomb_left = Uint128::zero();
     if tomb_price <= tomb_price_one {
         let tomb_supply = get_tomb_circulating_supply(storage, querier)?;
         let max_debt_ratio_percent = MAX_DEBT_RATIO_PERCENT.load(storage)?;
@@ -147,7 +147,7 @@ pub fn get_burnable_tomb_left(storage: &dyn Storage, querier: &QuerierWrapper) -
 
         if bond_max_supply > bond_supply {
             let max_mintable_bond = bond_max_supply - bond_supply;
-            let max_burnable_tomb = max_mintable_bond * tomb_price / ETHER;
+            let max_burnable_tomb = max_mintable_bond * tomb_price / Uint128::from(ETHER);
             let epoch_supply_contract_left = EPOCH_SUPPLY_CONTRACTION_LEFT.load(storage)?;
             
             if epoch_supply_contract_left > max_burnable_tomb {
@@ -164,14 +164,14 @@ pub fn get_redeemable_bonds(storage: &dyn Storage, querier: &QuerierWrapper, env
     let tomb_price = get_tomb_price(storage, querier)?;
     let tomb_price_ceiling = TOMB_PRICE_CEILING.load(storage)?;
 
-    let redeemable_bonds: Uint128;
+    let mut redeemable_bonds = Uint128::zero();
     if tomb_price > tomb_price_ceiling {
         let total_tomb = query_token_balance(querier, 
             TOMB.load(storage)?, env.contract.address)?;
 
         let rate = get_bond_premium_rate(storage, querier)?;
         if rate > Uint128::zero() {
-            redeemable_bonds = total_tomb * ETHER / rate;
+            redeemable_bonds = total_tomb * Uint128::from(ETHER) / rate;
         }
     }
     Ok(redeemable_bonds)
@@ -180,14 +180,14 @@ pub fn get_redeemable_bonds(storage: &dyn Storage, querier: &QuerierWrapper, env
 pub fn get_bond_discount_rate(storage: &dyn Storage, querier: &QuerierWrapper) -> StdResult<Uint128>{
     let tomb_price = get_tomb_price(storage, querier)?;
     let tomb_price_one = TOMB_PRICE_ONE.load(storage)?;
-    let mut rate: Uint128;
+    let mut rate = Uint128::zero();
     if tomb_price <=  tomb_price_one {
         let discount_percent = DISCOUNT_PERCENT.load(storage)?;
         if discount_percent == Uint128::zero() {
             // no discount
             rate = tomb_price_one;
         } else {
-            let bond_amount = tomb_price_one * ETHER / tomb_price;
+            let bond_amount = tomb_price_one * Uint128::from(ETHER) / tomb_price;
             let discount_amount = (bond_amount - tomb_price_one) * discount_percent / Uint128::from(10_000u128);
             rate = tomb_price_one + discount_amount;
             
@@ -203,7 +203,7 @@ pub fn get_bond_discount_rate(storage: &dyn Storage, querier: &QuerierWrapper) -
 pub fn get_bond_premium_rate(storage: &dyn Storage, querier: &QuerierWrapper) -> StdResult<Uint128> {
     let tomb_price = get_tomb_price(storage, querier)?;
     let tomb_price_ceiling = TOMB_PRICE_CEILING.load(storage)?;
-    let mut rate: Uint128;
+    let mut rate = Uint128::zero();
 
     if tomb_price > tomb_price_ceiling {
         let tomb_price_one = TOMB_PRICE_ONE.load(storage)?;
@@ -231,14 +231,14 @@ pub fn get_bond_premium_rate(storage: &dyn Storage, querier: &QuerierWrapper) ->
 pub fn get_tomb_circulating_supply(storage: &dyn Storage, querier: &QuerierWrapper) -> StdResult<Uint128>{
     let tomb = TOMB.load(storage)?;
     let total_supply: Uint128 = querier.query_wasm_smart(
-        tomb, 
+        tomb.clone(), 
         &BasisAssetQuery::TotalSupply {  }
     )?;
-    let balance_excluded = Uint128::zero();
+    let mut balance_excluded = Uint128::zero();
     let excluded_from_totalsupply = EXCLUDED_FROM_TOTALSUPPLY.load(storage)?;
     for entry_id in 0 .. excluded_from_totalsupply.len() {
         let balance = query_token_balance(querier, 
-            tomb, excluded_from_totalsupply[entry_id])?;
+            tomb.clone(), excluded_from_totalsupply[entry_id].clone())?;
         balance_excluded += balance;
     }
     Ok(total_supply - balance_excluded)

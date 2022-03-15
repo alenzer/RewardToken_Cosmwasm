@@ -14,7 +14,6 @@ fn workflow(){
     
     let msg = InstantiateMsg{
         TSHARE: "tomb".to_string(),
-        SHIBA: "shiba".to_string(),
         POOLSTARTTIME: Uint128::from(mock_env().block.time.seconds() + 1000)
     };
 //instantiate

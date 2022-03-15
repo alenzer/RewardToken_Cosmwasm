@@ -1,6 +1,6 @@
 use cosmwasm_std::{Addr, Uint128};
 use cw_storage_plus::{Item, Map, U128Key};
-use crate::msg::{Masonseat, MasonrySnapshot};
+use IMasonry::msg::{Masonseat, MasonrySnapshot};
 
 //---ContractGuard-----------------------------
 // pub const status: Map<(U128Key, Addr), bool> = Map::new("contract guard status");

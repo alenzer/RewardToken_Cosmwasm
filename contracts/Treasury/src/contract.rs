@@ -26,18 +26,18 @@ use crate::state::{
 };
 use crate::util::{ETHER, check_onlyoperator, check_operator, check_condition, get_tomb_price, 
     get_bond_discount_rate, get_tomb_circulating_supply, get_total_supply,
-    get_bond_premium_rate
+    get_bond_premium_rate, check_epoch
 };
 use terraswap::querier::{query_token_balance};
 use Oracle::msg::{ExecuteMsg as OracleMsg};
 use BasisAsset::msg::{ExecuteMsg as BasisAssetMsg};
-use Masonry::msg::{ExecuteMsg as MasonryMsg};
+use IMasonry::msg::{ExecuteMsg as MasonryMsg};
 use BondTreasury::msg::{QueryMsg as BondTreasuryQuery};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "Treasury";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const PERIOD: Uint128 = Uint128::from(21_600u128);
+pub const PERIOD: u128 = 21_600u128;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -126,7 +126,32 @@ pub fn execute(
         ExecuteMsg::BuyBonds { tomb_amount, target_price }
             =>  try_buy_bonds(deps, env, info, tomb_amount, target_price),
 
+        ExecuteMsg::RedeemBonds { bond_amount, target_price }
+            => try_redeem_bonds(deps, env, info, bond_amount, target_price),
             
+        ExecuteMsg::SendToMasonry { amount }
+            => try_send_to_masonry(deps, env, info, amount),
+
+        ExecuteMsg::SendToBondTreasury { amount }
+            => try_send_to_bond_treasury(deps, env, info, amount),
+
+        ExecuteMsg::AllocateSeigniorage {  }
+            => try_allocate_seigniorage(deps, env, info),
+
+        ExecuteMsg::GovernanceRecoverUnsupported { token, amount, to }
+            => try_governance_recover_unsupported(deps, env, info, token, amount, to),
+
+        ExecuteMsg::MasonrySetOperator { operator }
+            => try_masonry_set_operator(deps, info, operator),
+
+        ExecuteMsg::MasonrySetLockup { withdraw_lockup_epochs, reward_lockup_epochs }
+            => try_masonry_set_lockup(deps, info, withdraw_lockup_epochs, reward_lockup_epochs),
+
+        ExecuteMsg::MasonryAllocationSeigniorage { amount }
+            => try_masonry_allocation_seigniorage(deps, info, amount),
+        
+        ExecuteMsg::MasonryGovernanceRecoverUnsupported { token, amount, to }
+            =>  try_masonry_governance_recover_unsupported(deps, env, info, token, amount, to)
     }
 }
 pub fn try_initialize(
@@ -152,8 +177,8 @@ pub fn try_initialize(
     BOND_TREASURY.save(deps.storage, &bond_treasury)?;
     START_TIME.save(deps.storage, &start_time)?;
 
-    TOMB_PRICE_ONE.save(deps.storage, &ETHER)?;
-    TOMB_PRICE_CEILING.save(deps.storage, &(ETHER * Uint128::from(101u128) / Uint128::from(100u128)));
+    TOMB_PRICE_ONE.save(deps.storage, &Uint128::from(ETHER))?;
+    TOMB_PRICE_CEILING.save(deps.storage, &(Uint128::from(ETHER) * Uint128::from(101u128) / Uint128::from(100u128)));
 
     // exclude contracts from total supply
     let mut excluded_from_total_supply: Vec<Addr> = Vec::new();
@@ -162,11 +187,11 @@ pub fn try_initialize(
     EXCLUDED_FROM_TOTALSUPPLY.save(deps.storage, &excluded_from_total_supply);
 
     // Dynamic max expansion percent
-    let supply_tiers = vec![Uint128::zero(), Uint128::from(500_000u128)*ETHER,
-            Uint128::from(1_000_000u128) * ETHER, Uint128::from(1_500_000u128) * ETHER, 
-            Uint128::from(2_000_000u128) * ETHER, Uint128::from(5_000_000u128) * ETHER, 
-            Uint128::from(10_000_000u128) * ETHER, Uint128::from(20_000_000u128) * ETHER, 
-            Uint128::from(50_000_000u128) * ETHER];
+    let supply_tiers = vec![Uint128::zero(), Uint128::from(500_000u128)*Uint128::from(ETHER),
+            Uint128::from(1_000_000u128) * Uint128::from(ETHER), Uint128::from(1_500_000u128) * Uint128::from(ETHER), 
+            Uint128::from(2_000_000u128) * Uint128::from(ETHER), Uint128::from(5_000_000u128) * Uint128::from(ETHER), 
+            Uint128::from(10_000_000u128) * Uint128::from(ETHER), Uint128::from(20_000_000u128) * Uint128::from(ETHER), 
+            Uint128::from(50_000_000u128) * Uint128::from(ETHER)];
     SUPPLY_TIERS.save(deps.storage, &supply_tiers)?;
 
     let max_expansion_tiers = vec![Uint128::from(450u128), Uint128::from(400u128), 
@@ -331,7 +356,7 @@ pub fn try_set_max_expansion_tiers_entry(
     if value < Uint128::from(10u128) || value > Uint128::from(1000u128){
         return Err(ContractError::ValueOutOfRange {  })
     }
-    let max_expansion_tiers = MAX_EXPANSION_TIERS.load(deps.storage)?;
+    let mut max_expansion_tiers = MAX_EXPANSION_TIERS.load(deps.storage)?;
     max_expansion_tiers[index.u128() as usize] = value;
     MAX_EXPANSION_TIERS.save(deps.storage,&max_expansion_tiers)?;
 
@@ -606,7 +631,7 @@ pub fn try_buy_bonds(
         return Err(ContractError::TreasuryError { msg: "invalid bond rate".to_string() });
     }
 
-    let bond_amount = tomb_amount * rate / ETHER;
+    let bond_amount = tomb_amount * rate / Uint128::from(ETHER);
     let tomb_supply = get_tomb_circulating_supply(deps.storage, &deps.querier)?;
     let tbond_total_supply = get_total_supply(&deps.querier, TBOND.load(deps.storage)?)?;
     let new_bond_supply = tbond_total_supply + bond_amount;
@@ -639,15 +664,15 @@ pub fn try_buy_bonds(
         funds: vec![]
     };
 
-    let epoch_supply_contraction_left = EPOCH_SUPPLY_CONTRACTION_LEFT.load(deps.storage)?;
+    let mut epoch_supply_contraction_left = EPOCH_SUPPLY_CONTRACTION_LEFT.load(deps.storage)?;
     epoch_supply_contraction_left -= tomb_amount;
-    EPOCH_SUPPLY_CONTRACTION_LEFT.save(deps.storage, &epoch_supply_contraction_left);
+    EPOCH_SUPPLY_CONTRACTION_LEFT.save(deps.storage, &epoch_supply_contraction_left)?;
 
     let mut _deps = deps;
     let _env = env.clone();
     let _info = info.clone();
 
-    execute(deps.branch(), _env, _info, ExecuteMsg::UpdateTombPrice {  })?;
+    execute(_deps.branch(), _env, _info, ExecuteMsg::UpdateTombPrice {  })?;
 
     Ok(Response::new()
         .add_attribute("action", "buy bonds")
@@ -689,9 +714,9 @@ pub fn try_redeem_bonds(
         return Err(ContractError::TreasuryError { msg: "invalid bond rate".to_string() });
     }
 
-    let tomb_amount = bond_amount * rate / ETHER;
+    let tomb_amount = bond_amount * rate / Uint128::from(ETHER);
     let tomb = TOMB.load(deps.storage)?;
-    let tomb_balance = query_token_balance(&deps.querier, tomb, env.contract.address)?;
+    let tomb_balance = query_token_balance(&deps.querier, tomb, env.clone().contract.address)?;
     if tomb_balance < tomb_amount {
         return Err(ContractError::TreasuryError { 
             msg: "Treasury: treasury has no more budget".to_string()
@@ -730,7 +755,7 @@ pub fn try_redeem_bonds(
     let _env = env.clone();
     let _info = info.clone();
 
-    execute(deps.branch(), _env, _info, ExecuteMsg::UpdateTombPrice {  })?;
+    execute(_deps.branch(), _env, _info, ExecuteMsg::UpdateTombPrice {  })?;
 
     Ok(Response::new()
         .add_attribute("action", "redeem bonds")
@@ -746,7 +771,7 @@ pub fn try_send_to_masonry(
 )
     ->Result<Response, ContractError>
 {
-    let msgs: Vec<CosmosMsg> = Vec::new();
+    let mut msgs: Vec<CosmosMsg> = Vec::new();
     let tomb = TOMB.load(deps.storage)?;
 
     let msg_mint = WasmMsg::Execute { 
@@ -761,7 +786,7 @@ pub fn try_send_to_masonry(
     };
     msgs.push(CosmosMsg::Wasm(msg_mint));
 
-    let daofund_shared_amount: Uint128;
+    let mut daofund_shared_amount = Uint128::zero();
     let daofund_shared_percent = DAOFUND_SHARED_PERCENT.load(deps.storage)?;
     if daofund_shared_percent > Uint128::zero() {
         daofund_shared_amount = amount * daofund_shared_percent / Uint128::from(10_000u128);
@@ -779,7 +804,7 @@ pub fn try_send_to_masonry(
         msgs.push(CosmosMsg::Wasm(msg_transfer));
     }
 
-    let devfund_shared_amount: Uint128;
+    let mut devfund_shared_amount = Uint128::zero();
     let devfund_shared_percent = DEVFUND_SHARED_PERCENT.load(deps.storage)?;
     if devfund_shared_percent > Uint128::zero() {
         devfund_shared_amount = amount * devfund_shared_percent / Uint128::from(10_000u128);
@@ -797,7 +822,7 @@ pub fn try_send_to_masonry(
         msgs.push(CosmosMsg::Wasm(msg_transfer));
     }
 
-    amount = amount - daofund_shared_amount - devfund_shared_amount;
+    let _amount = amount - daofund_shared_amount - devfund_shared_amount;
 
     let msg_approve_0 = WasmMsg::Execute { 
         contract_addr: tomb.to_string(), 
@@ -816,7 +841,7 @@ pub fn try_send_to_masonry(
         msg: to_binary(
             &BasisAssetMsg::Approve { 
                 spender: MASONRY.load(deps.storage)?.to_string(), 
-                amount: amount
+                amount: _amount
             }
         )?, 
         funds: vec![]
@@ -827,7 +852,7 @@ pub fn try_send_to_masonry(
         contract_addr: MASONRY.load(deps.storage)?.to_string(), 
         msg: to_binary(
             &MasonryMsg::AllocateSeigniorage {  
-                amount: amount
+                amount: _amount
             }
         )?, 
         funds: vec![]
@@ -850,15 +875,263 @@ pub fn try_send_to_bond_treasury(
 {
     let bond_treasury = BOND_TREASURY.load(deps.storage)?;
     let treasury_balance = query_token_balance(
-        &deps.querier, TOMB.load(deps.storage)?, bond_treasury)?;
+        &deps.querier, TOMB.load(deps.storage)?, bond_treasury.clone())?;
 
-    let treasury_vested = deps.querier.query_smart_wasm(
-        &deps.querier, bond_treasury, 
-    )
-    uint256 treasuryVested = IBondTreasury(bondTreasury).totalVested();
-    if (treasuryVested >= treasuryBalance) return;
-    uint256 unspent = treasuryBalance.sub(treasuryVested);
-    if (_amount > unspent) {
-        IBasisAsset(tomb).mint(bondTreasury, _amount.sub(unspent));
+    let treasury_vested: Uint128 = deps.querier.query_wasm_smart(
+        BOND_TREASURY.load(deps.storage)?, 
+        &BondTreasuryQuery::TotalVested {  }
+    )?;
+    
+    if treasury_vested >= treasury_balance {
+        return Ok(Response::new());
+    } else{
+        let unspent = treasury_balance - treasury_vested;
+        if amount > unspent {
+            let msg = WasmMsg::Execute { 
+                contract_addr: TOMB.load(deps.storage)?.to_string(), 
+                msg: to_binary(
+                    &BasisAssetMsg::Mint { 
+                        recipient: bond_treasury.to_string(), 
+                        amount: amount - unspent 
+                    })?, 
+                funds: vec![]
+            };
+            return Ok(Response::new()
+                .add_attribute("action", "send to bond treasury")
+                .add_message(msg)
+            );
+        }
+        Ok(Response::new())
     }
+}
+
+pub fn calculate_max_supply_expansion_percent(
+    storage: &mut dyn Storage,
+    tomb_supply: Uint128
+)
+    ->StdResult<Uint128>
+{
+    let supply_tiers = SUPPLY_TIERS.load(storage)?;
+    let max_expansion_tiers = MAX_EXPANSION_TIERS.load(storage)?;
+
+    for tier_id in (0..=8).rev() {
+        if tomb_supply >= supply_tiers[tier_id] {
+            MAX_SUPPLY_EXPANSION_PERCENT.save(storage, 
+                &max_expansion_tiers[tier_id])?;
+            break;
+        }
+    }
+    Ok(MAX_SUPPLY_EXPANSION_PERCENT.load(storage)?)
+}
+
+pub fn try_allocate_seigniorage(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo
+ )
+    ->Result<Response, ContractError>
+{
+    check_condition(deps.storage, env.clone())?;
+    check_epoch(deps.storage, env.clone())?;
+    check_operator(deps.storage, deps.querier, env.clone())?;
+ 
+    let mut deps = deps;
+    execute(deps.branch(), env.clone(), info.clone(), 
+        ExecuteMsg::UpdateTombPrice{})?;
+
+    let previous_epoch_tomb_price = get_tomb_price(deps.storage, &deps.querier)?;
+    PREVIOUS_EPOCH_TOMB_PRICE.save(deps.storage, &previous_epoch_tomb_price)?;
+
+    let mut seigniorage_saved = SEIGNIORAGE_SAVED.load(deps.storage)?;
+    let tomb_supply = get_tomb_circulating_supply(deps.storage, &deps.querier)? 
+                                    - seigniorage_saved;
+
+    let bond_supply_expansion_percent = BOND_SUPPLY_EXPANSION_PERCENT.load(deps.storage)?;
+    
+    execute(deps.branch(), env.clone(), info.clone(),
+        ExecuteMsg::SendToBondTreasury {
+            amount: tomb_supply * bond_supply_expansion_percent / Uint128::from(10_000u128)
+        })?;
+
+    if EPOCH.load(deps.storage)? < BOOTSTRAP_EPOCHS.load(deps.storage)? {
+        // 28 first epochs with 4.5% expansion
+        let bootstrap_supply_expansion_percent = BOOTSTRAP_SUPPLY_EXPANSION_PERCENT.load(deps.storage)?;
+        execute(deps.branch(), env.clone(), info.clone(),
+            ExecuteMsg::SendToMasonry { 
+                amount: tomb_supply * bootstrap_supply_expansion_percent / Uint128::from(10_000u128)
+            })?;
+    } else {
+        if previous_epoch_tomb_price > TOMB_PRICE_CEILING.load(deps.storage)? {
+            // Expansion ($TOMB Price > 1 $FTM): there is some seigniorage to be allocated
+            let bond_supply = get_total_supply(&deps.querier, TBOND.load(deps.storage)?)?;
+            let mut percentage = previous_epoch_tomb_price - TOMB_PRICE_ONE.load(deps.storage)?;
+            let mut saved_for_bond = Uint128::zero();
+            let saved_for_masonry: Uint128;
+            let mse = calculate_max_supply_expansion_percent(deps.storage, tomb_supply)? * Uint128::from((10u64).pow(14u32));
+
+            if percentage > mse {
+                percentage = mse;
+            }
+            if seigniorage_saved >= bond_supply * BOND_DEPLETION_FLOOR_PERCENT.load(deps.storage)? / Uint128::from(10_000u128) {
+                // saved enough to pay debt, mint as usual rate
+                saved_for_masonry = tomb_supply * percentage / Uint128::from(ETHER);
+            } else {
+                // have not saved enough to pay debt, mint more
+                let seigniorage = tomb_supply * percentage / Uint128::from(ETHER);
+                saved_for_masonry = seigniorage * SEIGNIORAGE_EXPANSION_FLOOR_PERCENT.load(deps.storage)? / Uint128::from(10_000u128);
+                saved_for_bond = seigniorage - saved_for_masonry;
+                if MINTING_FACTOR_FOR_PAYING_DEBT.load(deps.storage)?> Uint128::zero() {
+                    saved_for_bond = saved_for_bond * MINTING_FACTOR_FOR_PAYING_DEBT.load(deps.storage)? / Uint128::from(10_000u128);
+                }
+            }
+            if saved_for_masonry > Uint128::zero() {
+                execute(deps.branch(), env.clone(), info.clone(),
+                    ExecuteMsg::SendToMasonry { amount: saved_for_masonry })?;
+            }
+            if saved_for_bond > Uint128::zero() {
+                seigniorage_saved += saved_for_bond;
+                SEIGNIORAGE_SAVED.save(deps.storage, &seigniorage_saved)?;
+
+                let msg  = WasmMsg::Execute { 
+                    contract_addr: TOMB.load(deps.storage)?.to_string(), 
+                    msg: to_binary(
+                        &BasisAssetMsg::Mint { 
+                            recipient: env.contract.address.to_string(), 
+                            amount: saved_for_bond }
+                    )?, 
+                    funds: vec![]
+                };
+                return Ok(Response::new()
+                .add_attribute("action", "allocate seignorage")
+                .add_message(msg));
+            }
+        }
+    }
+    Ok(Response::new()
+        .add_attribute("action", "allocate seignorage"))
+}
+
+pub fn try_governance_recover_unsupported(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    token: Addr,
+    amount: Uint128,
+    to: Addr,
+) 
+    -> Result<Response, ContractError>
+{
+    check_onlyoperator(deps.storage, info.sender)?;
+    // do not allow to drain core tokens
+    let tomb = TOMB.load(deps.storage)?;
+    let tbond = TBOND.load(deps.storage)?;
+    let tshare = TSHARE.load(deps.storage)?;
+
+    if token == tomb || token == tbond || token == tshare {
+        return Err(ContractError::InvalidToken {  });
+    }
+
+    let msg = WasmMsg::Execute { 
+        contract_addr: token.to_string(), 
+        msg: to_binary(
+            &BasisAssetMsg::Transfer { recipient: to.to_string(), amount: amount }
+        )?, 
+        funds: vec![]
+    };
+    Ok(Response::new()
+        .add_attribute("action", "goverance recover unsupported")
+        .add_message(msg)
+    )
+}
+
+pub fn try_masonry_set_operator(
+    deps: DepsMut,
+    info: MessageInfo,
+    operator: Addr
+)
+    ->Result<Response, ContractError>
+{
+    check_onlyoperator(deps.storage, info.sender)?;
+
+    let msg = WasmMsg::Execute { 
+        contract_addr: MASONRY.load(deps.storage)?.to_string(), 
+        msg: to_binary(
+            &MasonryMsg::SetOperator { operator: operator }
+        )?, 
+        funds: vec![]
+    };
+    Ok(Response::new()
+        .add_attribute("action", "Masonry set operator")
+        .add_message(msg)
+    )
+}
+
+pub fn try_masonry_set_lockup(
+    deps: DepsMut,
+    info: MessageInfo,
+    withdraw_lockup_epochs: Uint128,
+    reward_lockup_epochs: Uint128
+)
+    ->Result<Response, ContractError>
+{
+    check_onlyoperator(deps.storage, info.sender)?;
+
+    let msg = WasmMsg::Execute { 
+        contract_addr: MASONRY.load(deps.storage)?.to_string(), 
+        msg: to_binary(
+            &MasonryMsg::SetLockUp { withdraw_lockup_epochs, reward_lockup_epochs }
+        )?, 
+        funds: vec![]
+    };
+    Ok(Response::new()
+        .add_attribute("action", "Masonry set operator")
+        .add_message(msg)
+    )
+}
+
+pub fn try_masonry_allocation_seigniorage(
+    deps: DepsMut,
+    info: MessageInfo,
+    amount: Uint128,
+)
+    ->Result<Response, ContractError>
+{
+    check_onlyoperator(deps.storage, info.sender)?;
+
+    let msg = WasmMsg::Execute { 
+        contract_addr: MASONRY.load(deps.storage)?.to_string(), 
+        msg: to_binary(
+            &MasonryMsg::AllocateSeigniorage { amount }
+        )?, 
+        funds: vec![]
+    };
+    Ok(Response::new()
+        .add_attribute("action", "Masonry allocation seigniorage")
+        .add_message(msg)
+    )
+}
+
+pub fn try_masonry_governance_recover_unsupported(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    token: Addr,
+    amount: Uint128,
+    to: Addr
+)
+    ->Result<Response, ContractError>
+{
+    check_onlyoperator(deps.storage, info.sender)?;
+
+    let msg = WasmMsg::Execute { 
+        contract_addr: MASONRY.load(deps.storage)?.to_string(), 
+        msg: to_binary(
+            &MasonryMsg::GovernanceRecoverUnsupported { token, amount, to }
+        )?, 
+        funds: vec![]
+    };
+    Ok(Response::new()
+        .add_attribute("action", "Masonry governance recover unsupported")
+        .add_message(msg)
+    )
 }

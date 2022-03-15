@@ -52,8 +52,7 @@ thiserror = { version = "1.0.26" }
 terraswap = { path = "../../packages/terraswap", version = "2.4.1" }
 BasisAsset = { path = "../../packages/BasisAsset", version = "0.0.1" }
 BondTreasury = { path = "../../packages/BondTreasury", version = "0.0.1" }
-Masonry = { path = "../Masonry", version = "0.0.1" }
-Oracle = { path = "../Oracle", version = "0.0.1" }
+IMasonry = { path = "../../packages/IMasonry", version = "0.0.1" }
 Oracle = { path = "../Oracle", version = "0.0.1" }
 [dev-dependencies]
 cosmwasm-schema = { version = "0.16.0" }

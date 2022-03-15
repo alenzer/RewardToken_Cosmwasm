@@ -5,10 +5,11 @@ use cosmwasm_std::{
     Uint128
 };
 
-use crate::msg::{QueryMsg, Masonseat};
+use IMasonry::msg::{QueryMsg, Masonseat};
 use crate::state::{OPERATOR, TOMB, SHARE, TOTALSUPPLY, INITIALIZED, BALANCES,
     TREASURY, MASONS, MASONRY_HISTORY, WITHDRAW_LOCKUP_EPOCHS, REWARD_LOCKUP_EPOCHS};
-use crate::contract::{get_latest_snapshot, get_last_snapshot_of, balance_of};
+use crate::util::{get_latest_snapshot, latest_snapshot_index, balance_of, earned};
+use Treasury::msg::{QueryMsg as TreasuryQuery};
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
@@ -18,44 +19,62 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         }
 
         QueryMsg::LatestSnapshotIndex{ } => {
-            let masonry_history = MASONRY_HISTORY.load(deps.storage)?;
-            to_binary(&(masonry_history.len() -1))
+            to_binary(&latest_snapshot_index(deps.storage)?)
         },
+
         QueryMsg::GetLastSnapshotIndexOf{ mason } => {
             let _mason = MASONS.load(deps.storage, mason)?;
             to_binary(&_mason.last_snapshot_index)
         },
+
         QueryMsg::CanWithdraw{ mason } => {
             let _mason = MASONS.load(deps.storage, mason)?;
             let withdraw_lockup_epochs = WITHDRAW_LOCKUP_EPOCHS.load(deps.storage)?;
             let treasury = TREASURY.load(deps.storage)?;
 
-            // let epoch = deps.querier.query_wasm_smart(treasury, msg: )
-            // let res = (_mason.epochTimerStart + withdrawLockupEpochs) <= treasury.epoch();
-            to_binary(&Uint128::zero())
+            let epoch: Uint128 = deps.querier.query_wasm_smart(
+                treasury, &TreasuryQuery::Epoch {  })?;
+
+            let res = (_mason.epoch_timer_start + withdraw_lockup_epochs) <= epoch;
+            to_binary(&res)
         },
-        QueryMsg::CanClaimReward{ mason: Addr } => {
-            to_binary(&Uint128::zero())
+
+        QueryMsg::CanClaimReward{ mason } => {
+            let _mason = MASONS.load(deps.storage, mason)?;
+            let reward_lockup_epochs = REWARD_LOCKUP_EPOCHS.load(deps.storage)?;
+            let treasury = TREASURY.load(deps.storage)?;
+
+            let epoch: Uint128 = deps.querier.query_wasm_smart(
+                treasury, &TreasuryQuery::Epoch {  })?;
+
+            let res = (_mason.epoch_timer_start + reward_lockup_epochs) <= epoch;
+            to_binary(&res)
         },
+
         QueryMsg::Epoch{ } => {
-            to_binary(&Uint128::zero())
+            let epoch: Uint128 = deps.querier.query_wasm_smart(
+                TREASURY.load(deps.storage)?, &TreasuryQuery::Epoch {  })?;
+            to_binary(&epoch)
         },
+
         QueryMsg::NextEpochPoint{ } => {
-            to_binary(&Uint128::zero())
+            let next_epoch_point: Uint128 = deps.querier.query_wasm_smart(
+                TREASURY.load(deps.storage)?, &TreasuryQuery::NextEpochPoint {  })?;
+            to_binary(&next_epoch_point)
         },
+
         QueryMsg::GetTombPrice{ } => {
-            to_binary(&Uint128::zero())
+            let tomb_price: Uint128 = deps.querier.query_wasm_smart(
+                TREASURY.load(deps.storage)?, &TreasuryQuery::GetTombPrice {  })?;
+            to_binary(&tomb_price)
         },
+
         QueryMsg::RewardPerShare{ } => {
             to_binary(&(get_latest_snapshot(deps.storage).reward_per_share))
         },
+
         QueryMsg::Earned{ mason } => {
-            let latest_rps = get_latest_snapshot(deps.storage).reward_per_share;
-            let stored_rps = get_last_snapshot_of(deps.storage, mason.clone()).reward_per_share;
-            let balance = balance_of(deps.storage, mason.clone());
-            let mason = MASONS.load(deps.storage, mason).unwrap();
-            let res = balance * (latest_rps-stored_rps) / Uint128::from((10u64).pow(18u32)) + mason.reward_earned;
-            to_binary(&res)
+            to_binary(&earned(deps.storage, mason)?)
         }
     }
 }

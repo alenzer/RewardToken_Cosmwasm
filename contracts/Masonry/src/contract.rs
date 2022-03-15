@@ -1,19 +1,20 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-
 use cosmwasm_std::{
-    Addr, to_binary, DepsMut, Env, MessageInfo, Response, QuerierWrapper,
-    Uint128, CosmosMsg, WasmMsg, Storage, StdResult, StdError
+    Addr, DepsMut, Env, MessageInfo, Response,
+    Uint128, CosmosMsg, StdResult, StdError
 };
+
+use IMasonry::msg::{ExecuteMsg, InstantiateMsg, MasonrySnapshot};
+use Treasury::msg::{QueryMsg as TreasuryQuery};
 use cw2::set_contract_version;
-use cw20::{Cw20ExecuteMsg, Cw20QueryMsg, BalanceResponse as Cw20BalanceResponse};
 
 use crate::error::ContractError;
-use crate::msg::{ExecuteMsg, InstantiateMsg, Masonseat, MasonrySnapshot};
 use crate::state::{OPERATOR, TOMB, SHARE, TOTALSUPPLY, INITIALIZED, BALANCES,
     TREASURY, MASONS, MASONRY_HISTORY, WITHDRAW_LOCKUP_EPOCHS, REWARD_LOCKUP_EPOCHS};
-use terraswap::querier::{query_token_balance};
-
+use crate::util::{balance_of, check_onlyoperator, check_not_initialized, check_mason_exists,
+    safe_share_transferfrom, safe_tomb_transferfrom, safe_transferfrom, update_reward, 
+    get_latest_snapshot};
 // version info for migration info
 const CONTRACT_NAME: &str = "Masonry";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -32,89 +33,6 @@ pub fn instantiate(
         .add_attribute("method", "instantiate"))
 }
 
-pub fn balance_of(storage: &dyn Storage, sender: Addr) -> Uint128{
-    BALANCES.load(storage, sender.clone()).unwrap()
-}
-pub fn check_onlyoperator(storage: &dyn Storage, sender: Addr) -> Result<Response, ContractError> {
-    let operator = OPERATOR.load(storage)?;
-    if operator != sender {
-        return Err(ContractError::Unauthorized{});
-    }
-    Ok(Response::new())
-}
-pub fn check_mason_exists(storage: &dyn Storage, sender: Addr) -> Result<Response, ContractError> {
-    if balance_of(storage, sender) <= Uint128::zero() {
-        return Err(ContractError::MasonryNotExist{})
-    }
-    Ok(Response::new())
-}
-
-pub fn update_reward(storage: &mut dyn Storage, mason: Addr) -> Result<Response, ContractError> {
-    if mason != Addr::unchecked("".to_string()) {
-        let mut seat: Masonseat = MASONS.load(storage, mason.clone())?;
-        // seat.rewardEarned = earned(mason);
-        // seat.last_Snapshot_index = latestSnapshotIndex();
-        MASONS.save(storage, mason, &seat)?;
-    }
-    Ok(Response::new())
-}
-
-pub fn check_not_initialized(storage: &dyn Storage) -> Result<Response, ContractError> {
-    let initialized = INITIALIZED.load(storage)?;
-    if initialized {
-        return Err(ContractError::AlreadyInitialized{})
-    }
-    Ok(Response::new())
-}
-pub fn get_latest_snapshot(storage: &dyn Storage) -> MasonrySnapshot {
-    let masonry_history = MASONRY_HISTORY.load(storage).unwrap();
-    let len = masonry_history.len();
-
-    masonry_history[len-1].clone()
-}
-
-pub fn get_last_snapshot_of(storage: &dyn Storage, mason: Addr) -> MasonrySnapshot {
-    let mason = MASONS.load(storage, mason).unwrap();
-    let masonry_history = MASONRY_HISTORY.load(storage).unwrap();
-    masonry_history[(mason.last_snapshot_index.u128() as usize)].clone()
-}
-fn safe_transferfrom( deps: DepsMut, token: Addr, _from: Addr, _to: Addr, _amount: Uint128) -> StdResult<CosmosMsg> {
-    let token_balance = query_token_balance(&deps.querier, token.clone(), _from.clone()).unwrap();
-    
-    if token_balance > Uint128::zero() {
-        let mut amount = _amount;
-        if _amount > token_balance {
-            amount = token_balance;
-        }
-
-        let msg_transfer = WasmMsg::Execute {
-            contract_addr: token.to_string(),
-            msg: to_binary(
-                &Cw20ExecuteMsg::TransferFrom {
-                    owner: _from.to_string(),
-                    recipient: _to.to_string(),
-                    amount: amount
-                }
-            ).unwrap(),
-            funds: vec![]
-        };
-        return Ok(CosmosMsg::Wasm(msg_transfer));
-    }
-
-    Err(StdError::GenericErr{
-        msg: "transfer failed".to_string()
-    })
-}
-fn safe_share_transferfrom( deps: DepsMut, _from: Addr, _to: Addr, _amount: Uint128) -> StdResult<CosmosMsg> {
-    let share = SHARE.load(deps.storage).unwrap();
-
-    safe_transferfrom(deps, share, _from, _to, _amount)
-}
-fn safe_tomb_transferfrom( deps: DepsMut, _from: Addr, _to: Addr, _amount: Uint128) -> StdResult<CosmosMsg> {
-    let tomb = TOMB.load(deps.storage).unwrap();
-
-    safe_transferfrom(deps, tomb, _from, _to, _amount)
-}
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn execute(
     deps: DepsMut,
@@ -331,11 +249,16 @@ pub fn try_claimreward(
 
     let reward = mason.reward_earned;
     if reward > Uint128::zero() {
-        // require(masons[msg.sender].epochTimerStart.add(rewardLockupEpochs) <= treasury.epoch(), "Masonry: still in reward lockup");
-        // masons[msg.sender].epochTimerStart = treasury.epoch(); // reset timer
+        let epoch: Uint128 = deps.querier.query_wasm_smart(
+            TREASURY.load(deps.storage)?, &TreasuryQuery::Epoch {  })?;
+        let reward_lockup_epochs = REWARD_LOCKUP_EPOCHS.load(deps.storage)?;
+
+        if mason.epoch_timer_start + reward_lockup_epochs > epoch {
+            return Err(ContractError::StillInLockup {  });
+        }
+        mason.epoch_timer_start = epoch;
         mason.reward_earned = Uint128::zero();
-        // tomb.safeTransfer(msg.sender, reward);
-        // emit RewardPaid(msg.sender, reward);
+
         let msg = safe_tomb_transferfrom(deps, env.contract.address, sender, reward)?;
         return Ok(Response::new()
             .add_message(msg));

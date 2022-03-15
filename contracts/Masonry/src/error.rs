@@ -31,5 +31,8 @@ pub enum ContractError {
     ZeroTotalSupply{},
 
     #[error("Invalid token transfer")]
-    InvalidToken{}
+    InvalidToken{},
+
+    #[error("Masonry: still in reward lockup")]
+    StillInLockup{}
 }
