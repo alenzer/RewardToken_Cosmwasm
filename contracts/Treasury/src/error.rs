@@ -9,6 +9,15 @@ pub enum ContractError {
     #[error("Unauthorized")]
     Unauthorized {},
 
+    #[error("Not started yet")]
+    NotStartedYet {},
+
+    #[error("Not opended yet")]
+    NotOpenedYet {},
+
+    #[error("Treasury: need more permission")]
+    NeedMorePermission{ },
+    
     #[error("WithdrawLockupEpochs:out of range")]
     OutofRange {},
 
@@ -33,6 +42,18 @@ pub enum ContractError {
     #[error("Invalid token transfer")]
     InvalidToken{},
 
-    #[error("Masonry: still in reward lockup")]
-    StillInLockup{}
+    #[error("Index out of range")]
+    IndexOutOfRange{},
+
+    #[error("Value out of range")]
+    ValueOutOfRange{},
+
+    #[error("0 Address")]
+    ZeroAddress{},
+
+    #[error("0 value")]
+    ZeroValue{},
+
+    #[error("Treasury error: {:?}", msg)]
+    TreasuryError{msg: String}
 }

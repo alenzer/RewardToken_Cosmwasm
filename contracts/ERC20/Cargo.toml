@@ -1,5 +1,5 @@
 [package]
-name = "tombgenesisrewardpool"
+name = "ERC20"
 description = "An implementation of the ERC20 token interface"
 version = "0.0.1"
 authors = ["Simon Warta <webmaster128@users.noreply.github.com>"]
