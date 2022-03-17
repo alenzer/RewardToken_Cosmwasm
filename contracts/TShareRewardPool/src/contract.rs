@@ -201,7 +201,7 @@ pub fn execute(
 ) -> Result<Response, ContractError> {
     match msg {
         ExecuteMsg::Add{ alloc_point, token, with_update, last_reward_time}
-            => try_add(deps, env, alloc_point, token, with_update, last_reward_time ),
+            => try_add(deps, env, info, alloc_point, token, with_update, last_reward_time ),
 
         ExecuteMsg::Set{ pid, alloc_point}
             => try_set(deps, env, pid, alloc_point ),
@@ -464,6 +464,7 @@ pub fn try_set(
 pub fn try_add(
     deps: DepsMut, 
     env: Env, 
+    info: MessageInfo,
     alloc_point: Uint128,
     token: Addr,
     with_update: bool,
@@ -471,6 +472,11 @@ pub fn try_add(
 ) 
     -> Result<Response, ContractError>
 {
+    let operator = OPERATOR.load(deps.storage)?;
+    if operator != info.sender {
+        return Err(ContractError::Unauthorized{ });
+    }
+
     if check_pool_duplicate(&deps, token.clone()) == true {
         return Err(ContractError::AlreadyExistingPool {})
     }

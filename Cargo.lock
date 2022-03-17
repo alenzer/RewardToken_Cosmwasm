@@ -91,6 +91,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "RebateTreasury"
+version = "0.0.1"
+dependencies = [
+ "BasisAsset",
+ "BondTreasury",
+ "IMasonry",
+ "Oracle",
+ "Treasury",
+ "cosmwasm-bignumber",
+ "cosmwasm-schema 0.16.5",
+ "cosmwasm-std 0.16.5",
+ "cw-storage-plus",
+ "cw2",
+ "cw20",
+ "schemars",
+ "serde",
+ "terraswap",
+ "thiserror",
+]
+
+[[package]]
 name = "TShareRewardPool"
 version = "0.0.1"
 dependencies = [

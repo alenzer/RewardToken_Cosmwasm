@@ -11,7 +11,7 @@ use crate::msg::{ExecuteMsg, InstantiateMsg};
 use crate::state::{TOKEN0, TOKEN1, PAIR, PRICE0, PRICE1};
 use terraswap::asset::{AssetInfo, Asset};
 use terraswap::pair::{QueryMsg as PairQueryMsg, SimulationResponse, PoolResponse};
-use terraswap::querier::{simulate};
+use terraswap::querier::{simulate, query_pair_info};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "Oracle";
