@@ -1,5 +1,5 @@
 use cosmwasm_std::{Storage, Response, Addr, Uint128, DepsMut, StdResult, WasmMsg, StdError,
-        CosmosMsg, to_binary};
+        CosmosMsg, to_binary, QuerierWrapper};
 use IMasonry::msg::{Masonseat, MasonrySnapshot};
 use terraswap::querier::{query_token_balance};
 use cw20::{Cw20ExecuteMsg};
@@ -65,8 +65,8 @@ pub fn get_last_snapshot_of(storage: &dyn Storage, mason: Addr) -> MasonrySnapsh
     let masonry_history = MASONRY_HISTORY.load(storage).unwrap();
     masonry_history[(mason.last_snapshot_index.u128() as usize)].clone()
 }
-pub fn safe_transferfrom( deps: DepsMut, token: Addr, _from: Addr, _to: Addr, _amount: Uint128) -> StdResult<CosmosMsg> {
-    let token_balance = query_token_balance(&deps.querier, token.clone(), _from.clone()).unwrap();
+pub fn safe_transferfrom( storage: &dyn Storage, querier: &QuerierWrapper, token: Addr, _from: Addr, _to: Addr, _amount: Uint128) -> StdResult<CosmosMsg> {
+    let token_balance = query_token_balance(querier, token.clone(), _from.clone()).unwrap();
     
     if token_balance > Uint128::zero() {
         let mut amount = _amount;
@@ -92,13 +92,13 @@ pub fn safe_transferfrom( deps: DepsMut, token: Addr, _from: Addr, _to: Addr, _a
         msg: "transfer failed".to_string()
     })
 }
-pub fn safe_share_transferfrom( deps: DepsMut, _from: Addr, _to: Addr, _amount: Uint128) -> StdResult<CosmosMsg> {
-    let share = SHARE.load(deps.storage).unwrap();
+pub fn safe_share_transferfrom( storage: &dyn Storage, querier: &QuerierWrapper, _from: Addr, _to: Addr, _amount: Uint128) -> StdResult<CosmosMsg> {
+    let share = SHARE.load(storage).unwrap();
 
-    safe_transferfrom(deps, share, _from, _to, _amount)
+    safe_transferfrom(storage, querier, share, _from, _to, _amount)
 }
-pub fn safe_tomb_transferfrom( deps: DepsMut, _from: Addr, _to: Addr, _amount: Uint128) -> StdResult<CosmosMsg> {
-    let tomb = TOMB.load(deps.storage).unwrap();
+pub fn safe_tomb_transferfrom(storage: &dyn Storage, querier: &QuerierWrapper, _from: Addr, _to: Addr, _amount: Uint128) -> StdResult<CosmosMsg> {
+    let tomb = TOMB.load(storage).unwrap();
 
-    safe_transferfrom(deps, tomb, _from, _to, _amount)
+    safe_transferfrom(storage, querier, tomb, _from, _to, _amount)
 }

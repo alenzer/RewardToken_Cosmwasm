@@ -1,8 +1,8 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    Addr, DepsMut, Env, MessageInfo, Response,
-    Uint128, CosmosMsg, StdResult, StdError
+    Addr, DepsMut, Env, MessageInfo, Response, Storage,
+    Uint128, CosmosMsg, StdResult, StdError, QuerierWrapper
 };
 
 use IMasonry::msg::{ExecuteMsg, InstantiateMsg, MasonrySnapshot};
@@ -139,47 +139,49 @@ pub fn try_setlockup(
 }
 
 pub fn _stake(
-    deps: DepsMut,
+    storage: &mut dyn Storage,
+    querier: &QuerierWrapper,
     env: Env,
     sender: Addr,
     amount: Uint128
 )
     -> StdResult<CosmosMsg>
 {
-    let mut total_supply = TOTALSUPPLY.load(deps.storage)?;
+    let mut total_supply = TOTALSUPPLY.load(storage)?;
     total_supply += amount;
-    TOTALSUPPLY.save(deps.storage, &total_supply)?;
+    TOTALSUPPLY.save(storage, &total_supply)?;
 
-    let mut balance = BALANCES.load(deps.storage, sender.clone())?;
+    let mut balance = BALANCES.load(storage, sender.clone())?;
     balance += amount;
-    BALANCES.save(deps.storage, sender.clone(), &balance)?;
+    BALANCES.save(storage, sender.clone(), &balance)?;
     
-    safe_share_transferfrom(deps, sender, env.contract.address, amount)
+    safe_share_transferfrom(storage, querier, sender, env.contract.address, amount)
 }
 
 pub fn _withdraw(
-    deps: DepsMut,
+    storage: &mut dyn Storage,
+    querier: &QuerierWrapper,
     env: Env,
     sender: Addr,
     amount: Uint128
 )
     -> StdResult<CosmosMsg>
 {
-    let mut mason_share = BALANCES.load(deps.storage, sender.clone())?;
+    let mut mason_share = BALANCES.load(storage, sender.clone())?;
     if mason_share < amount {
         return Err(StdError::GenericErr { 
             msg: "Masonry: withdraw request greater than staked amount".to_string() 
         })
     }
 
-    let mut total_supply = TOTALSUPPLY.load(deps.storage)?;
+    let mut total_supply = TOTALSUPPLY.load(storage)?;
     total_supply -= amount;
-    TOTALSUPPLY.save(deps.storage, &total_supply)?;
+    TOTALSUPPLY.save(storage, &total_supply)?;
 
     mason_share -= amount;
-    BALANCES.save(deps.storage, sender.clone(), &mason_share)?;
+    BALANCES.save(storage, sender.clone(), &mason_share)?;
     
-    safe_share_transferfrom(deps, env.contract.address,sender,  amount)
+    safe_share_transferfrom(storage, querier, env.contract.address,sender,  amount)
 }
 
 pub fn try_stake(
@@ -196,8 +198,13 @@ pub fn try_stake(
     if amount <= Uint128::zero() {
         return Err(ContractError::ZeroStake{ })
     }
-    let msg = _stake(deps, env, sender, amount)?;
-    // masons[msg.sender].epochTimerStart = treasury.epoch(); // reset timer
+    let msg = _stake(deps.storage, &deps.querier, env, sender.clone(), amount)?;
+    let epoch: Uint128 = deps.querier.query_wasm_smart(
+        TREASURY.load(deps.storage)?, &TreasuryQuery::Epoch {  })?;
+    let mut mason = MASONS.load(deps.storage, sender.clone())?;
+    mason.epoch_timer_start = epoch;
+    MASONS.save(deps.storage, sender.clone(), &mason)?;
+
     Ok(Response::new()
         .add_message(msg))
 }
@@ -219,7 +226,7 @@ pub fn try_withdraw(
 
     // require(masons[msg.sender].epochTimerStart.add(withdrawLockupEpochs) <= treasury.epoch(), "Masonry: still in withdraw lockup");
     // claimReward();
-    let msg = _withdraw(deps, env, sender, amount)?;
+    let msg = _withdraw(deps.storage, &deps.querier, env, sender, amount)?;
     Ok(Response::new()
         .add_message(msg))
 }
@@ -259,11 +266,11 @@ pub fn try_claimreward(
         mason.epoch_timer_start = epoch;
         mason.reward_earned = Uint128::zero();
 
-        let msg = safe_tomb_transferfrom(deps, env.contract.address, sender, reward)?;
+        let msg = safe_tomb_transferfrom(deps.storage, &deps.querier, env.contract.address, sender, reward)?;
         return Ok(Response::new()
             .add_message(msg));
     }
-    return Ok(Response::new())
+    Ok(Response::new())
 }
 
 pub fn try_allocate_seigniorage(
@@ -298,7 +305,7 @@ pub fn try_allocate_seigniorage(
     masonry_history.push(new_snapshot);
     MASONRY_HISTORY.save(deps.storage, &masonry_history)?;
 
-    let msg = safe_tomb_transferfrom(deps, sender, env.contract.address, amount)?;
+    let msg = safe_tomb_transferfrom(deps.storage, &deps.querier, sender, env.contract.address, amount)?;
     Ok(Response::new()
         .add_message(msg))
 }
@@ -321,7 +328,7 @@ pub fn try_governance_recover_unsupported(
         return Err(ContractError::InvalidToken{ })
     }
 
-    let msg = safe_transferfrom(deps, token, env.contract.address, to, amount)?;
+    let msg = safe_transferfrom(deps.storage, &deps.querier, token, env.contract.address, to, amount)?;
     Ok(Response::new()
         .add_message(msg))
 }
