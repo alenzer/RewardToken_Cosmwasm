@@ -34,5 +34,8 @@ pub enum ContractError {
     InvalidToken{},
 
     #[error("Masonry: still in reward lockup")]
-    StillInLockup{}
+    StillInLockup{},
+
+    #[error("ContractGuard: one block, one function")]
+    ContractGuard{}
 }

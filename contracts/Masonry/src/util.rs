@@ -5,12 +5,13 @@ use terraswap::querier::{query_token_balance};
 use cw20::{Cw20ExecuteMsg};
 
 use crate::error::ContractError;
-use crate::state::{OPERATOR, TOMB, SHARE, TOTALSUPPLY, INITIALIZED, BALANCES,
+use crate::state::{OPERATOR, TOMB, SHARE, TOTALSUPPLY, INITIALIZED, BALANCES, STATUS,
     TREASURY, MASONS, MASONRY_HISTORY, WITHDRAW_LOCKUP_EPOCHS, REWARD_LOCKUP_EPOCHS};
     
 pub fn balance_of(storage: &dyn Storage, sender: Addr) -> Uint128{
     BALANCES.load(storage, sender.clone()).unwrap()
 }
+
 pub fn check_onlyoperator(storage: &dyn Storage, sender: Addr) -> Result<Response, ContractError> {
     let operator = OPERATOR.load(storage)?;
     if operator != sender {
@@ -18,6 +19,18 @@ pub fn check_onlyoperator(storage: &dyn Storage, sender: Addr) -> Result<Respons
     }
     Ok(Response::new())
 }
+pub fn check_onlyoneblock(storage: &mut dyn Storage, height: Uint128, sender: Addr)
+    -> Result<Response, ContractError> 
+{
+    let status = STATUS.load(storage, (height.u128().into(), sender.clone()))?;
+    if status == true {
+        return Err(ContractError::ContractGuard{ });
+    }
+
+    STATUS.save(storage, (height.u128().into(), sender), &true)?;
+    Ok(Response::new())
+}
+
 pub fn check_mason_exists(storage: &dyn Storage, sender: Addr) -> Result<Response, ContractError> {
     if balance_of(storage, sender) <= Uint128::zero() {
         return Err(ContractError::MasonryNotExist{})
@@ -102,3 +115,4 @@ pub fn safe_tomb_transferfrom(storage: &dyn Storage, querier: &QuerierWrapper, _
 
     safe_transferfrom(storage, querier, tomb, _from, _to, _amount)
 }
+

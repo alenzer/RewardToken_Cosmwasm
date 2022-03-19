@@ -14,7 +14,7 @@ use crate::state::{OPERATOR, TOMB, SHARE, TOTALSUPPLY, INITIALIZED, BALANCES,
     TREASURY, MASONS, MASONRY_HISTORY, WITHDRAW_LOCKUP_EPOCHS, REWARD_LOCKUP_EPOCHS};
 use crate::util::{balance_of, check_onlyoperator, check_not_initialized, check_mason_exists,
     safe_share_transferfrom, safe_tomb_transferfrom, safe_transferfrom, update_reward, 
-    get_latest_snapshot};
+    get_latest_snapshot, check_onlyoneblock};
 // version info for migration info
 const CONTRACT_NAME: &str = "Masonry";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -193,6 +193,7 @@ pub fn try_stake(
     ->Result<Response, ContractError>
 {
     let sender = info.sender;
+    check_onlyoneblock(deps.storage, Uint128::from(env.block.height as u128), sender.clone())?;
     update_reward(deps.storage, sender.clone())?;
 
     if amount <= Uint128::zero() {
@@ -217,16 +218,31 @@ pub fn try_withdraw(
 )
     ->Result<Response, ContractError>
 {
+    let _info = info.clone();
+    let _env = env.clone();
+    
     let sender = info.sender;
+
+    check_onlyoneblock(deps.storage, Uint128::from(env.block.height as u128), sender.clone())?;
     check_mason_exists(deps.storage, sender.clone())?;
     update_reward(deps.storage, sender.clone())?;
     if amount <= Uint128::zero() {
         return Err(ContractError::ZeroUnstake{ })
     }
 
-    // require(masons[msg.sender].epochTimerStart.add(withdrawLockupEpochs) <= treasury.epoch(), "Masonry: still in withdraw lockup");
-    // claimReward();
-    let msg = _withdraw(deps.storage, &deps.querier, env, sender, amount)?;
+    let epoch: Uint128 = deps.querier.query_wasm_smart(
+        TREASURY.load(deps.storage)?, &TreasuryQuery::Epoch {  })?;
+    let mason = MASONS.load(deps.storage, sender.clone())?;
+    let withdraw_lockup_epochs = WITHDRAW_LOCKUP_EPOCHS.load(deps.storage)?;
+
+    if mason.epoch_timer_start + withdraw_lockup_epochs > epoch {
+        return Err(ContractError::StillInLockup {  });    
+    }
+    
+    let mut _deps = deps;
+    execute(_deps.branch(), env, _info, ExecuteMsg::ClaimReward {  })?;
+
+    let msg = _withdraw(_deps.storage, &_deps.querier, _env, sender, amount)?;
     Ok(Response::new()
         .add_message(msg))
 }

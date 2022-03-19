@@ -10,6 +10,9 @@ pub const SHARE: Item<Addr> = Item::new("share");
 pub const TOTALSUPPLY: Item<Uint128> = Item::new("total supply");
 pub const BALANCES: Map<Addr, Uint128> = Map::new("balances");
 
+//---ContractGuard-----------------------------
+pub const STATUS: Map<(U128Key, Addr), bool> = Map::new("Contract guard status");
+
 //---Masonry-------------------------------------
 pub const OPERATOR: Item<Addr> = Item::new("operator");
 pub const INITIALIZED: Item<bool> = Item::new("initialized");
