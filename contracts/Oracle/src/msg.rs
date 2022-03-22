@@ -13,7 +13,9 @@ pub struct InstantiateMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    Update {}
+    Update {},
+    SetPeriod{period: Uint128},
+    SetEpoch{epoch: Uint128},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -26,5 +28,10 @@ pub enum QueryMsg {
     Twap{
         token: AssetInfo,
         amount_in: Uint128
-    }
+    },
+    GetCurrentEpoch{},
+    GetPeriod{},
+    GetStartTime{},
+    GetLastEpochTime{},
+    NextEpochPoint{}
 }

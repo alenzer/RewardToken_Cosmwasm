@@ -4,8 +4,9 @@ use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     to_binary, Binary, Deps, Env, StdResult, StdError
 };
-use crate::state::{TOKEN0, TOKEN1, PAIR, PRICE0, PRICE1};
-use crate::contract::{get_price};
+use crate::state::{TOKEN0, TOKEN1, PAIR, PRICE0, PRICE1, START_TIME, EPOCH, PERIOD,
+    LAST_EPOCH_TIME, OPERATOR};
+use crate::contract::{get_price, get_next_epoch_point};
 use crate::msg::{QueryMsg};
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -53,6 +54,26 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
                 amount_out = price1 * amount_in;
             }
             to_binary(&amount_out)
+        }
+
+        QueryMsg::GetCurrentEpoch{} => {
+            to_binary(&EPOCH.load(deps.storage)?)
+        }
+    
+        QueryMsg::GetPeriod{} => {
+            to_binary(&PERIOD.load(deps.storage)?)
+        }
+
+        QueryMsg::GetStartTime{} => {
+            to_binary(&START_TIME.load(deps.storage)?)
+        }
+
+        QueryMsg::GetLastEpochTime{} => {
+            to_binary(&LAST_EPOCH_TIME.load(deps.storage)?)
+        }
+
+        QueryMsg::NextEpochPoint{} => {
+            to_binary(&get_next_epoch_point(deps.storage)?)
         }
     }
 }

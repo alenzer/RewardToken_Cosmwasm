@@ -8,4 +8,13 @@ pub enum ContractError {
 
     #[error("Invalid Token")]
     InvalidToken{},
+
+    #[error("Epoch not started yet")]
+    NotStartedYet{},
+
+    #[error("Epoch: only operator allowed for pre-epoch")]
+    Unauthorized{},
+
+    #[error("_period: out of range")]
+    OutOfRange{},
 }
